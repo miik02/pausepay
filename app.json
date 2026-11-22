@@ -1,23 +1,27 @@
 {
   "expo": {
-    "name": "pausepay",
+    "name": "PausePay",
     "slug": "pausepay",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "pausepay",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "supportsTablet": false,
+      "bundleIdentifier": "com.miik02.pausepay"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#09090B",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.miik02.pausepay",
+      "edgeToEdgeEnabled": true
     },
     "web": {
       "output": "server",
@@ -32,11 +36,19 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
+      ],
+      "expo-sharing",
+      [
+        "expo-notifications",
+        {
+          "color": "#10B981"
+        }
       ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "backgroundColor": "#09090B"
   }
 }

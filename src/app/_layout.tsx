@@ -1,18 +1,49 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
+import React from 'react';
+import { StyleSheet, View } from 'react-native';
+import { Stack } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { OnboardingFlow } from '../components/OnboardingFlow';
+import { AppProvider, useApp } from '../context/AppContext';
+import { theme } from '../theme/tokens';
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import AppTabs from '@/components/app-tabs';
+function RootNavigator() {
+  const { isReady, profile } = useApp();
 
-SplashScreen.preventAutoHideAsync();
+  if (!isReady) {
+    return <View style={styles.splash} />;
+  }
 
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
+  if (!profile.onboardingCompleted) {
+    return <OnboardingFlow />;
+  }
+
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      <AppTabs />
-    </ThemeProvider>
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        contentStyle: { backgroundColor: theme.bg },
+      }}
+    >
+      <Stack.Screen name="(tabs)" />
+    </Stack>
   );
 }
+
+export default function RootLayout() {
+  return (
+    <SafeAreaProvider>
+      <AppProvider>
+        <StatusBar style="light" />
+        <RootNavigator />
+      </AppProvider>
+    </SafeAreaProvider>
+  );
+}
+
+const styles = StyleSheet.create({
+  splash: {
+    flex: 1,
+    backgroundColor: theme.bg,
+  },
+});
