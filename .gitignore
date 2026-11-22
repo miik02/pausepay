@@ -41,3 +41,12 @@ example
 # generated native folders
 /ios
 /android
+
+# Secretos, claves de firma y variables locales (NUNCA subir a Git)
+*.keystore
+*.jks
+*.p8
+*.p12
+*.mobileprovision
+.env
+.env.*
