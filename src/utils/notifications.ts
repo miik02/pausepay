@@ -1,9 +1,10 @@
 import { Linking, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
-import { CurrencyCode, ImpulseItem, LanguageCode } from '../types';
+import { CurrencyCode, ImpulseItem, LanguageCode, SubscriptionItem } from '../types';
 import { formatCurrency } from './finance';
 
 const CHANNEL_ID = 'pausepay-quarantine';
+const FORTY_EIGHT_HOURS_MS = 48 * 3600 * 1000;
 
 export function configureNotifications(): void {
   try {
@@ -18,15 +19,22 @@ export function configureNotifications(): void {
 
     if (Platform.OS === 'android') {
       Notifications.setNotificationChannelAsync(CHANNEL_ID, {
-        name: 'Quarantine Alerts',
+        name: 'PausePay Alerts',
         importance: Notifications.AndroidImportance.HIGH,
         vibrationPattern: [0, 200, 120, 200],
         lightColor: '#10B981',
       }).catch(() => {});
     }
   } catch {
-    // Fallback silencioso en entornos sin soporte nativo completo
+    // Fallback silencioso
   }
+}
+
+async function ensureNotificationPermission(): Promise<boolean> {
+  const existing = await Notifications.getPermissionsAsync();
+  if (existing.status === 'granted') return true;
+  const requested = await Notifications.requestPermissionsAsync();
+  return requested.status === 'granted';
 }
 
 export async function scheduleQuarantineNotification(
@@ -39,17 +47,8 @@ export async function scheduleQuarantineNotification(
       return { permissionDenied: false };
     }
 
-    const existing = await Notifications.getPermissionsAsync();
-    let finalStatus = existing.status;
-
-    if (finalStatus !== 'granted') {
-      const requested = await Notifications.requestPermissionsAsync();
-      finalStatus = requested.status;
-    }
-
-    if (finalStatus !== 'granted') {
-      return { permissionDenied: true };
-    }
+    const granted = await ensureNotificationPermission();
+    if (!granted) return { permissionDenied: true };
 
     const priceLabel = formatCurrency(item.price, currency, 0);
     const futureLabel = formatCurrency(item.futureValue, currency, 0);
@@ -84,12 +83,69 @@ export async function scheduleQuarantineNotification(
   }
 }
 
+export async function scheduleSubscriptionAlert(
+  sub: SubscriptionItem,
+  currency: CurrencyCode,
+  lang: LanguageCode
+): Promise<{ notificationId?: string; permissionDenied: boolean }> {
+  try {
+    const now = Date.now();
+    if (sub.nextBillingAt <= now + 60000) {
+      return { permissionDenied: false };
+    }
+
+    const granted = await ensureNotificationPermission();
+    if (!granted) return { permissionDenied: true };
+
+    // Aviso 48h antes; si faltan menos de 48h, avisa 2h antes del cobro (o en 5 min mínimo)
+    let alertAt = sub.nextBillingAt - FORTY_EIGHT_HOURS_MS;
+    if (alertAt <= now + 60000) {
+      alertAt = Math.max(now + 5 * 60 * 1000, sub.nextBillingAt - 2 * 3600 * 1000);
+    }
+
+    const priceLabel = formatCurrency(sub.price, currency, 2);
+    const isTrial = sub.cycle === 'trial';
+
+    const title =
+      lang === 'es'
+        ? isTrial
+          ? `¡Prueba gratis a punto de cobrar!: ${sub.name}`
+          : `Renovación en 48h: ${sub.name}`
+        : isTrial
+          ? `Free trial ending soon: ${sub.name}`
+          : `Renewal in 48h: ${sub.name}`;
+
+    const body =
+      lang === 'es'
+        ? `Se cobrarán ${priceLabel}. Cancélala ahora si no la usas y suma el ahorro a tu Bóveda.`
+        : `${priceLabel} will be charged soon. Cancel now if unused and rescue that money into your Vault.`;
+
+    const notificationId = await Notifications.scheduleNotificationAsync({
+      content: {
+        title,
+        body,
+        sound: true,
+        data: { subscriptionId: sub.id },
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: new Date(alertAt),
+        channelId: Platform.OS === 'android' ? CHANNEL_ID : undefined,
+      },
+    });
+
+    return { notificationId, permissionDenied: false };
+  } catch {
+    return { permissionDenied: false };
+  }
+}
+
 export async function cancelQuarantineNotification(notificationId?: string): Promise<void> {
   if (!notificationId) return;
   try {
     await Notifications.cancelScheduledNotificationAsync(notificationId);
   } catch {
-    // Ignorar si ya expiró o fue cancelada
+    // Ignorar si ya expiró
   }
 }
 

@@ -21,7 +21,7 @@ import { exportBackupFile, pickAndParseBackup } from '../../utils/backup';
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
-  const { profile, items, isPro, setDevPro, updateProfile, replaceAllData } = useApp();
+  const { profile, items, subscriptions, isPro, setDevPro, updateProfile, replaceAllData } = useApp();
   const lang = profile.language;
 
   const [income, setIncome] = useState(String(profile.monthlyNetIncome));
@@ -46,7 +46,7 @@ export default function SettingsScreen() {
 
   const handleExport = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    const res = await exportBackupFile(profile, items);
+    const res = await exportBackupFile(profile, items, subscriptions);
     if (!res.ok) {
       Alert.alert('PausePay', t(lang, 'backupExportErr'));
     }
@@ -63,16 +63,16 @@ export default function SettingsScreen() {
       return;
     }
 
-    const count = res.data.items.length;
+    const totalEntries = res.data.items.length + (res.data.subscriptions?.length ?? 0);
     Alert.alert(
       t(lang, 'backupConfirmTitle'),
-      `${t(lang, 'backupConfirmMsg')} ${count}`,
+      `${t(lang, 'backupConfirmMsg')} ${totalEntries}`,
       [
         { text: t(lang, 'vaultCancel'), style: 'cancel' },
         {
           text: t(lang, 'backupConfirmAction'),
           onPress: async () => {
-            await replaceAllData(res.data.profile, res.data.items);
+            await replaceAllData(res.data.profile, res.data.items, res.data.subscriptions ?? []);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
             Alert.alert(t(lang, 'backupSuccessTitle'), t(lang, 'backupSuccessMsg'));
           },

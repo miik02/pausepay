@@ -4,6 +4,8 @@ export type EtfPresetId = 'savings' | 'conservative' | 'msci_world' | 'sp500' | 
 export type PurchaseFrequency = 'once' | 'monthly';
 export type QuarantineHours = 24 | 48 | 72 | 168;
 export type ImpulseStatus = 'quarantine' | 'resisted' | 'bought';
+export type BillingCycle = 'monthly' | 'yearly' | 'trial';
+export type SubscriptionStatus = 'active' | 'cancelled';
 
 export type ImpulseCategory =
   | 'tech'
@@ -42,6 +44,19 @@ export interface ImpulseItem {
   notificationId?: string;
 }
 
+export interface SubscriptionItem {
+  id: string;
+  name: string;
+  price: number;
+  cycle: BillingCycle;
+  category: ImpulseCategory;
+  nextBillingAt: number;
+  status: SubscriptionStatus;
+  createdAt: number;
+  cancelledAt?: number;
+  notificationId?: string;
+}
+
 export interface GrowthPoint {
   year: number;
   principal: number;
@@ -59,10 +74,21 @@ export interface VaultStats {
   boughtCount: number;
 }
 
+export interface SubStats {
+  monthlyBurn: number;
+  yearlyBurn: number;
+  yearlyHours: number;
+  tenYearOpportunityCost: number;
+  activeCount: number;
+  urgentCount: number;
+  cancelledCount: number;
+}
+
 export interface AppBackupPayload {
   version: number;
   app: 'PausePay';
   exportedAt: string;
   profile: UserProfile;
   items: ImpulseItem[];
+  subscriptions?: SubscriptionItem[];
 }

@@ -8,10 +8,9 @@ import { theme } from '../../theme/tokens';
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
-  const { profile, vaultStats } = useApp();
+  const { profile, vaultStats, subStats } = useApp();
   const lang = profile.language;
 
-  // Margen explícito para que la barra de 3 botones de Android nunca tape las pestañas
   const bottomInset = Math.max(insets.bottom, 10);
 
   return (
@@ -61,6 +60,26 @@ export default function TabsLayout() {
           tabBarIcon: ({ size, focused }) => (
             <Ionicons
               name={focused ? 'shield-checkmark' : 'shield-checkmark-outline'}
+              size={size}
+              color={focused ? theme.accent : theme.textMuted}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="subs"
+        options={{
+          title: t(lang, 'tabSubs'),
+          tabBarBadge: subStats.urgentCount > 0 ? subStats.urgentCount : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: theme.danger,
+            color: '#FAFAFA',
+            fontSize: 10,
+            fontWeight: '800',
+          },
+          tabBarIcon: ({ size, focused }) => (
+            <Ionicons
+              name={focused ? 'repeat' : 'repeat-outline'}
               size={size}
               color={focused ? theme.accent : theme.textMuted}
             />

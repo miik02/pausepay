@@ -1,8 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AppBackupPayload, ImpulseItem, UserProfile } from '../types';
+import { AppBackupPayload, ImpulseItem, SubscriptionItem, UserProfile } from '../types';
 
 const PROFILE_KEY = '@pausepay_profile_v1';
 const ITEMS_KEY = '@pausepay_items_v1';
+const SUBS_KEY = '@pausepay_subs_v1';
 
 export const DEFAULT_PROFILE: UserProfile = {
   monthlyNetIncome: 1800,
@@ -44,13 +45,33 @@ export async function saveItems(items: ImpulseItem[]): Promise<void> {
   await AsyncStorage.setItem(ITEMS_KEY, JSON.stringify(items));
 }
 
-export function serializeBackup(profile: UserProfile, items: ImpulseItem[]): string {
+export async function loadSubscriptions(): Promise<SubscriptionItem[]> {
+  try {
+    const raw = await AsyncStorage.getItem(SUBS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveSubscriptions(subscriptions: SubscriptionItem[]): Promise<void> {
+  await AsyncStorage.setItem(SUBS_KEY, JSON.stringify(subscriptions));
+}
+
+export function serializeBackup(
+  profile: UserProfile,
+  items: ImpulseItem[],
+  subscriptions: SubscriptionItem[] = []
+): string {
   const payload: AppBackupPayload = {
-    version: 1,
+    version: 2,
     app: 'PausePay',
     exportedAt: new Date().toISOString(),
     profile,
     items,
+    subscriptions,
   };
   return JSON.stringify(payload, null, 2);
 }
@@ -73,6 +94,7 @@ export function parseBackup(rawJson: string): AppBackupPayload | null {
       exportedAt: typeof parsed.exportedAt === 'string' ? parsed.exportedAt : new Date().toISOString(),
       profile: { ...DEFAULT_PROFILE, ...parsed.profile },
       items: parsed.items,
+      subscriptions: Array.isArray(parsed.subscriptions) ? parsed.subscriptions : [],
     };
   } catch {
     return null;

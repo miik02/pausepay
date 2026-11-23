@@ -1,4 +1,4 @@
-import { CurrencyCode, EtfPresetId, QuarantineHours } from '../types';
+import { BillingCycle, CurrencyCode, EtfPresetId, ImpulseCategory, QuarantineHours } from '../types';
 
 export interface EtfPreset {
   id: EtfPresetId;
@@ -31,9 +31,27 @@ export const CURRENCIES: Record<CurrencyCode, { symbol: string; label: string; s
   GBP: { symbol: '£', label: 'British Pound (£)', suffix: false },
 };
 
+export interface SubPreset {
+  name: string;
+  price: number;
+  cycle: BillingCycle;
+  category: ImpulseCategory;
+  daysAhead: number;
+}
+
+export const SUB_PRESETS: SubPreset[] = [
+  { name: 'Netflix', price: 13.99, cycle: 'monthly', category: 'entertainment', daysAhead: 15 },
+  { name: 'Spotify', price: 10.99, cycle: 'monthly', category: 'entertainment', daysAhead: 15 },
+  { name: 'Gym', price: 39.9, cycle: 'monthly', category: 'other', daysAhead: 30 },
+  { name: 'Amazon Prime', price: 49.9, cycle: 'yearly', category: 'home', daysAhead: 30 },
+  { name: 'ChatGPT / IA', price: 22, cycle: 'monthly', category: 'tech', daysAhead: 14 },
+  { name: 'Free Trial', price: 19.99, cycle: 'trial', category: 'tech', daysAhead: 7 },
+];
+
 export const FREE_LIMITS = {
   maxActiveQuarantine: 2,
   maxHistoryItems: 5,
+  maxActiveSubscriptions: 3,
   allowedFreeEtf: 'sp500' as EtfPresetId,
   allowedFreeHorizon: 10,
 } as const;

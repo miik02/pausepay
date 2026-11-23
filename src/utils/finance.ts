@@ -1,14 +1,18 @@
 import { CURRENCIES } from '../constants/etfs';
 import {
+  BillingCycle,
   CurrencyCode,
   GrowthPoint,
   ImpulseItem,
   PurchaseFrequency,
+  SubscriptionItem,
+  SubStats,
   VaultStats,
 } from '../types';
 
 const WEEKS_PER_MONTH = 4.3333;
 const STANDARD_WORKDAY_HOURS = 8;
+const THREE_DAYS_MS = 3 * 24 * 3600 * 1000;
 
 export function calculateHourlyRate(
   monthlyNetIncome: number,
@@ -72,6 +76,49 @@ export function generateGrowthSeries(
     points.push({ year: y, principal, total });
   }
   return points;
+}
+
+export function getAnnualSubscriptionCost(price: number, cycle: BillingCycle): number {
+  if (price <= 0) return 0;
+  if (cycle === 'monthly') return price * 12;
+  return price;
+}
+
+export function calculateSubscriptionStats(
+  subscriptions: SubscriptionItem[],
+  hourlyRate: number
+): SubStats {
+  const now = Date.now();
+  let yearlyBurn = 0;
+  let activeCount = 0;
+  let urgentCount = 0;
+  let cancelledCount = 0;
+
+  for (const sub of subscriptions) {
+    if (sub.status === 'active') {
+      activeCount += 1;
+      yearlyBurn += getAnnualSubscriptionCost(sub.price, sub.cycle);
+      if (sub.nextBillingAt - now <= THREE_DAYS_MS) {
+        urgentCount += 1;
+      }
+    } else {
+      cancelledCount += 1;
+    }
+  }
+
+  const monthlyBurn = yearlyBurn / 12;
+  const yearlyHours = hourlyRate > 0 ? yearlyBurn / hourlyRate : 0;
+  const tenYearOpportunityCost = calculateFutureValue(monthlyBurn, 10, 10, 'monthly');
+
+  return {
+    monthlyBurn,
+    yearlyBurn,
+    yearlyHours,
+    tenYearOpportunityCost,
+    activeCount,
+    urgentCount,
+    cancelledCount,
+  };
 }
 
 export function calculateVaultStats(items: ImpulseItem[], hourlyRate: number): VaultStats {
