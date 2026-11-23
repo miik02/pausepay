@@ -1,6 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Animated,
   Image,
   Pressable,
   ScrollView,
@@ -12,12 +11,18 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
+import { AnimatedNumber } from '../../components/AnimatedNumber';
 import { CleanDaysCard } from '../../components/CleanDaysCard';
 import { ContextualTipModal } from '../../components/ContextualTipModal';
 import { FreedomGoalCard } from '../../components/FreedomGoalCard';
 import { ResolveImpulseModal } from '../../components/ResolveImpulseModal';
+import { ScalePressable } from '../../components/ScalePressable';
 import { ShareStoryModal } from '../../components/ShareStoryModal';
 import { StoryPayload } from '../../components/StoryCard';
+import {
+  CelebrationPayload,
+  VaultCelebrationModal,
+} from '../../components/VaultCelebrationModal';
 import { FREE_LIMITS } from '../../constants/etfs';
 import { CATEGORY_META, t } from '../../constants/i18n';
 import { useApp } from '../../context/AppContext';
@@ -25,6 +30,7 @@ import { useDialog } from '../../context/DialogContext';
 import { RADIUS, SPACING, TABULAR_NUMS, theme } from '../../theme/tokens';
 import { ImpulseCategory, ImpulseItem, ImpulseStatus } from '../../types';
 import { calculateCostPerUse, formatCurrency } from '../../utils/finance';
+import { scheduleQuarantineNotification } from '../../utils/notifications';
 
 function formatCountdown(remainingMs: number, lang: 'es' | 'en'): string {
   if (remainingMs <= 0) return t(lang, 'vaultReady');
@@ -50,6 +56,7 @@ export default function VaultScreen() {
     vaultStats,
     tutorialsSeen,
     isPro,
+    extendImpulseQuarantine,
     resolveImpulse,
     deleteImpulse,
     saveActiveGoal,
@@ -63,16 +70,9 @@ export default function VaultScreen() {
   const [tab, setTab] = useState<ImpulseStatus>('quarantine');
   const [selectedItem, setSelectedItem] = useState<ImpulseItem | null>(null);
   const [sharePayload, setSharePayload] = useState<StoryPayload | null>(null);
+  const [celebration, setCelebration] = useState<CelebrationPayload | null>(null);
   const [showTip, setShowTip] = useState(false);
   const [now, setNow] = useState(() => Date.now());
-  const [victoryInfo, setVictoryInfo] = useState<{
-    item: ImpulseItem;
-    amount: number;
-    hours: number;
-  } | null>(null);
-
-  const bannerAnim = useRef(new Animated.Value(0)).current;
-  const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -84,31 +84,8 @@ export default function VaultScreen() {
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 15000);
-    return () => {
-      clearInterval(interval);
-      if (bannerTimer.current) clearTimeout(bannerTimer.current);
-    };
+    return () => clearInterval(interval);
   }, []);
-
-  const showVictoryBanner = (item: ImpulseItem, amount: number, hours: number) => {
-    if (bannerTimer.current) clearTimeout(bannerTimer.current);
-    setVictoryInfo({ item, amount, hours });
-    bannerAnim.setValue(0);
-    Animated.spring(bannerAnim, {
-      toValue: 1,
-      useNativeDriver: true,
-      damping: 16,
-      stiffness: 180,
-    }).start();
-
-    bannerTimer.current = setTimeout(() => {
-      Animated.timing(bannerAnim, {
-        toValue: 0,
-        duration: 240,
-        useNativeDriver: true,
-      }).start(() => setVictoryInfo(null));
-    }, 5500);
-  };
 
   const filteredItems = useMemo(
     () => items.filter((item) => item.status === tab),
@@ -146,7 +123,37 @@ export default function VaultScreen() {
     setSelectedItem(null);
     await resolveImpulse(item.id, 'resisted');
     const savedNow = item.frequency === 'monthly' ? item.price * 12 : item.price;
-    showVictoryBanner({ ...item, status: 'resisted' }, savedNow, item.hoursCost);
+    const resolvedItem: ImpulseItem = { ...item, status: 'resisted', resolvedAt: Date.now() };
+    // Pausa corta para que iOS cierre ResolveImpulseModal antes de abrir la celebración
+    setTimeout(() => {
+      setCelebration({
+        item: resolvedItem,
+        amountSaved: savedNow,
+        hoursSaved: item.hoursCost,
+        futureValue: item.futureValue,
+      });
+    }, 180);
+  };
+
+  const handleExtend = async (item: ImpulseItem) => {
+    setSelectedItem(null);
+    const base = Math.max(Date.now(), item.unlockAt);
+    const newUnlockAt = base + 48 * 3600 * 1000;
+    const { notificationId } = await scheduleQuarantineNotification(
+      { ...item, unlockAt: newUnlockAt },
+      profile.currency,
+      lang
+    );
+    await extendImpulseQuarantine(item.id, newUnlockAt, notificationId);
+    setTimeout(() => {
+      showDialog({
+        title: t(lang, 'modalExtendedTitle'),
+        message: t(lang, 'modalExtendedMsg'),
+        icon: 'time-outline',
+        tone: 'warning',
+        actions: [{ label: t(lang, 'tipGotIt'), variant: 'primary' }],
+      });
+    }, 180);
   };
 
   const handleBought = async (item: ImpulseItem) => {
@@ -195,7 +202,7 @@ export default function VaultScreen() {
       >
         <View style={styles.headerRow}>
           <Text style={styles.title}>{t(lang, 'vaultTitle')}</Text>
-          <Pressable
+          <ScalePressable
             style={styles.shareHeroBtn}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -204,70 +211,46 @@ export default function VaultScreen() {
           >
             <Ionicons name="share-outline" size={15} color={theme.accent} />
             <Text style={styles.shareHeroText}>{t(lang, 'vaultShareBtn')}</Text>
-          </Pressable>
+          </ScalePressable>
         </View>
-
-        {victoryInfo && (
-          <Animated.View
-            style={[
-              styles.victoryBanner,
-              {
-                opacity: bannerAnim,
-                transform: [
-                  {
-                    scale: bannerAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0.94, 1],
-                    }),
-                  },
-                ],
-              },
-            ]}
-          >
-            <View style={styles.victoryInner}>
-              <Ionicons name="sparkles" size={20} color={theme.accent} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.victoryTitle}>{t(lang, 'victoryTitle')}</Text>
-                <Text style={styles.victorySub}>
-                  +{formatCurrency(victoryInfo.amount, profile.currency, 0)} · +{victoryInfo.hours.toFixed(1)}h {t(lang, 'victorySub')}
-                </Text>
-              </View>
-              <Pressable
-                style={styles.victoryShareBtn}
-                onPress={() => {
-                  const target = victoryInfo.item;
-                  setVictoryInfo(null);
-                  setSharePayload({ mode: 'impulse', item: target });
-                }}
-              >
-                <Ionicons name="share-social-outline" size={14} color="#04150E" />
-                <Text style={styles.victoryShareText}>{t(lang, 'victoryShareAction')}</Text>
-              </Pressable>
-            </View>
-          </Animated.View>
-        )}
 
         <View style={styles.heroCard}>
           <Text style={styles.heroKicker}>{t(lang, 'vaultRescued')}</Text>
-          <Text style={styles.heroValue}>
-            {formatCurrency(vaultStats.totalResisted, profile.currency, 0)}
-          </Text>
+          <AnimatedNumber
+            value={vaultStats.totalResisted}
+            format={(v) => formatCurrency(v, profile.currency, 0)}
+            style={styles.heroValue}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+          />
 
           <View style={styles.heroStatsRow}>
             <View style={styles.heroStatItem}>
-              <Text style={styles.heroStatNum}>
-                {formatCurrency(vaultStats.totalFutureSaved, profile.currency, 0)}
-              </Text>
+              <AnimatedNumber
+                value={vaultStats.totalFutureSaved}
+                format={(v) => formatCurrency(v, profile.currency, 0)}
+                style={styles.heroStatNum}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              />
               <Text style={styles.heroStatLbl}>{t(lang, 'vaultFutureRescued')}</Text>
             </View>
             <View style={styles.heroDivider} />
             <View style={styles.heroStatItem}>
-              <Text style={styles.heroStatNum}>{vaultStats.freedomDays.toFixed(1)} d</Text>
+              <AnimatedNumber
+                value={vaultStats.freedomDays}
+                format={(v) => `${v.toFixed(1)} d`}
+                style={styles.heroStatNum}
+              />
               <Text style={styles.heroStatLbl}>{t(lang, 'vaultFreedom')}</Text>
             </View>
             <View style={styles.heroDivider} />
             <View style={styles.heroStatItem}>
-              <Text style={styles.heroStatNum}>{vaultStats.resistanceRate}%</Text>
+              <AnimatedNumber
+                value={vaultStats.resistanceRate}
+                format={(v) => `${Math.round(v)}%`}
+                style={styles.heroStatNum}
+              />
               <Text style={styles.heroStatLbl}>{t(lang, 'vaultResistance')}</Text>
             </View>
           </View>
@@ -348,8 +331,9 @@ export default function VaultScreen() {
             const cpu = calculateCostPerUse(item.price, item.estimatedUses);
 
             return (
-              <Pressable
+              <ScalePressable
                 key={item.id}
+                scaleTo={0.98}
                 style={[
                   styles.itemCard,
                   item.status === 'quarantine' && (isReady ? styles.itemCardReady : styles.itemCardQuarantine),
@@ -457,7 +441,7 @@ export default function VaultScreen() {
                     </View>
                   </View>
                 )}
-              </Pressable>
+              </ScalePressable>
             );
           })
         )}
@@ -510,8 +494,20 @@ export default function VaultScreen() {
         lang={lang}
         onClose={() => setSelectedItem(null)}
         onResist={handleResist}
+        onExtend={handleExtend}
         onBought={handleBought}
         onDelete={confirmDelete}
+      />
+
+      <VaultCelebrationModal
+        payload={celebration}
+        currency={profile.currency}
+        lang={lang}
+        onClose={() => setCelebration(null)}
+        onShare={(item) => {
+          setCelebration(null);
+          setTimeout(() => setSharePayload({ mode: 'impulse', item }), 190);
+        }}
       />
 
       <ShareStoryModal
@@ -573,44 +569,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
   },
-  victoryBanner: {
-    backgroundColor: theme.accentDim,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-    borderColor: theme.accent,
-  },
-  victoryInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    padding: 12,
-  },
-  victoryTitle: {
-    color: theme.accent,
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  victorySub: {
-    ...TABULAR_NUMS,
-    color: theme.textPrimary,
-    fontSize: 11,
-    fontWeight: '600',
-    marginTop: 2,
-  },
-  victoryShareBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: theme.accent,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: RADIUS.full,
-  },
-  victoryShareText: {
-    color: '#04150E',
-    fontSize: 11,
-    fontWeight: '800',
-  },
   heroCard: {
     backgroundColor: theme.surface,
     borderRadius: RADIUS.lg,
@@ -627,7 +585,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.9,
   },
   heroValue: {
-    ...TABULAR_NUMS,
     color: theme.accent,
     fontSize: 42,
     fontWeight: '800',
@@ -647,7 +604,6 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   heroStatNum: {
-    ...TABULAR_NUMS,
     color: theme.textPrimary,
     fontSize: 15,
     fontWeight: '800',

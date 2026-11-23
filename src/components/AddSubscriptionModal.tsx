@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -28,14 +28,16 @@ import {
   formatCurrency,
   getAnnualSubscriptionCost,
 } from '../utils/finance';
+import { ScalePressable } from './ScalePressable';
 
 interface AddSubscriptionModalProps {
   visible: boolean;
+  editingSub?: SubscriptionItem | null;
   currency: CurrencyCode;
   lang: LanguageCode;
   hourlyRate: number;
   onClose: () => void;
-  onSubmit: (sub: SubscriptionItem) => Promise<void>;
+  onSubmit: (sub: SubscriptionItem, isEdit: boolean) => Promise<void>;
 }
 
 const QUICK_DAYS = [3, 7, 14, 30];
@@ -43,6 +45,7 @@ const CATEGORIES = Object.keys(CATEGORY_META) as ImpulseCategory[];
 
 export function AddSubscriptionModal({
   visible,
+  editingSub,
   currency,
   lang,
   hourlyRate,
@@ -57,6 +60,28 @@ export function AddSubscriptionModal({
   const [daysAhead, setDaysAhead] = useState(14);
   const [saving, setSaving] = useState(false);
   const [inlineNotice, setInlineNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!visible) return;
+    setInlineNotice(null);
+    if (editingSub) {
+      setName(editingSub.name);
+      setPriceText(String(editingSub.price));
+      setCycle(editingSub.cycle);
+      setCategory(editingSub.category);
+      const remDays = Math.max(
+        1,
+        Math.ceil((editingSub.nextBillingAt - Date.now()) / (24 * 3600 * 1000))
+      );
+      setDaysAhead(Math.min(365, remDays));
+    } else {
+      setName('');
+      setPriceText('12.99');
+      setCycle('monthly');
+      setCategory('entertainment');
+      setDaysAhead(14);
+    }
+  }, [visible, editingSub]);
 
   const numericPrice = useMemo(() => {
     const clean = priceText.replace(',', '.').replace(/[^0-9.]/g, '');
@@ -99,29 +124,30 @@ export function AddSubscriptionModal({
       return;
     }
     setInlineNotice(null);
-
     setSaving(true);
+
     try {
       const now = Date.now();
+      const isEdit = Boolean(editingSub);
       const sub: SubscriptionItem = {
-        id: `sub-${now}-${Math.random().toString(36).slice(2, 6)}`,
+        id: editingSub ? editingSub.id : `sub-${now}-${Math.random().toString(36).slice(2, 6)}`,
         name: name.trim() || (cycle === 'trial' ? t(lang, 'subsCycleTrial') : 'Subscription'),
         price: numericPrice,
         cycle,
         category,
         nextBillingAt: now + Math.max(1, daysAhead) * 24 * 3600 * 1000,
         status: 'active',
-        createdAt: now,
+        createdAt: editingSub ? editingSub.createdAt : now,
+        notificationId: editingSub?.notificationId,
       };
-      await onSubmit(sub);
-      setName('');
-      setPriceText('12.99');
-      setDaysAhead(14);
+      await onSubmit(sub, isEdit);
       onClose();
     } finally {
       setSaving(false);
     }
   };
+
+  const isEdit = Boolean(editingSub);
 
   return (
     <Modal
@@ -139,7 +165,9 @@ export function AddSubscriptionModal({
 
         <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) + 10 }]}>
           <View style={styles.header}>
-            <Text style={styles.title}>{t(lang, 'subsModalTitle')}</Text>
+            <Text style={styles.title}>
+              {isEdit ? t(lang, 'subsEditModalTitle') : t(lang, 'subsModalTitle')}
+            </Text>
             <Pressable style={styles.closeBtn} onPress={onClose} hitSlop={10}>
               <Ionicons name="close" size={20} color={theme.textSecondary} />
             </Pressable>
@@ -150,22 +178,26 @@ export function AddSubscriptionModal({
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            <Text style={styles.label}>{t(lang, 'subsPresetsLabel')}</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.chipRow}
-            >
-              {SUB_PRESETS.map((preset) => (
-                <Pressable
-                  key={preset.name}
-                  style={styles.presetChip}
-                  onPress={() => applyPreset(preset)}
+            {!isEdit && (
+              <>
+                <Text style={styles.label}>{t(lang, 'subsPresetsLabel')}</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.chipRow}
                 >
-                  <Text style={styles.presetText}>{preset.name}</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
+                  {SUB_PRESETS.map((preset) => (
+                    <Pressable
+                      key={preset.name}
+                      style={styles.presetChip}
+                      onPress={() => applyPreset(preset)}
+                    >
+                      <Text style={styles.presetText}>{preset.name}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </>
+            )}
 
             <TextInput
               style={styles.input}
@@ -315,14 +347,16 @@ export function AddSubscriptionModal({
             </View>
           )}
 
-          <Pressable
+          <ScalePressable
             style={[styles.saveBtn, saving && { opacity: 0.7 }]}
             onPress={handleSave}
             disabled={saving}
           >
             <Ionicons name="notifications-outline" size={18} color="#04150E" />
-            <Text style={styles.saveBtnText}>{t(lang, 'subsSaveBtn')}</Text>
-          </Pressable>
+            <Text style={styles.saveBtnText}>
+              {isEdit ? t(lang, 'subsUpdateBtn') : t(lang, 'subsSaveBtn')}
+            </Text>
+          </ScalePressable>
         </View>
       </KeyboardAvoidingView>
     </Modal>

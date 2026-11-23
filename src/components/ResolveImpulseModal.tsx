@@ -8,6 +8,7 @@ import { RADIUS, SPACING, TABULAR_NUMS, theme } from '../theme/tokens';
 import { CurrencyCode, ImpulseItem, LanguageCode } from '../types';
 import { calculateCostPerUse, formatCurrency } from '../utils/finance';
 import { HoldToBuyButton } from './HoldToBuyButton';
+import { ScalePressable } from './ScalePressable';
 
 interface ResolveImpulseModalProps {
   item: ImpulseItem | null;
@@ -15,6 +16,7 @@ interface ResolveImpulseModalProps {
   lang: LanguageCode;
   onClose: () => void;
   onResist: (item: ImpulseItem) => void;
+  onExtend: (item: ImpulseItem) => void;
   onBought: (item: ImpulseItem) => void;
   onDelete: (item: ImpulseItem) => void;
 }
@@ -25,6 +27,7 @@ export function ResolveImpulseModal({
   lang,
   onClose,
   onResist,
+  onExtend,
   onBought,
   onDelete,
 }: ResolveImpulseModalProps) {
@@ -38,6 +41,11 @@ export function ResolveImpulseModal({
   const handleResistPress = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     onResist(item);
+  };
+
+  const handleExtendPress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    onExtend(item);
   };
 
   const handleOpenLink = () => {
@@ -140,10 +148,15 @@ export function ResolveImpulseModal({
           )}
 
           <View style={styles.actions}>
-            <Pressable style={styles.resistBtn} onPress={handleResistPress}>
+            <ScalePressable style={styles.resistBtn} onPress={handleResistPress}>
               <Ionicons name="shield-checkmark" size={20} color="#04150E" />
               <Text style={styles.resistText}>{t(lang, 'modalResistBtn')}</Text>
-            </Pressable>
+            </ScalePressable>
+
+            <ScalePressable style={styles.extendBtn} onPress={handleExtendPress}>
+              <Ionicons name="time-outline" size={16} color={theme.warning} />
+              <Text style={styles.extendText}>{t(lang, 'modalExtendBtn')}</Text>
+            </ScalePressable>
 
             <HoldToBuyButton
               idleLabel={t(lang, 'modalHoldHint')}
@@ -313,6 +326,22 @@ const styles = StyleSheet.create({
   resistText: {
     color: '#04150E',
     fontSize: 16,
+    fontWeight: '800',
+  },
+  extendBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    backgroundColor: theme.warningDim,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.35)',
+    borderRadius: RADIUS.md,
+    height: 46,
+  },
+  extendText: {
+    color: theme.warning,
+    fontSize: 13,
     fontWeight: '800',
   },
 });

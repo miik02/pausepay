@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { CURRENCIES } from '../constants/etfs';
+import { AnimatedNumber } from './AnimatedNumber';
 import { t } from '../constants/i18n';
 import { useApp } from '../context/AppContext';
 import { RADIUS, SPACING, TABULAR_NUMS, theme } from '../theme/tokens';
@@ -176,9 +177,11 @@ export function OnboardingFlow() {
 
             <View style={styles.rateCard}>
               <Text style={styles.rateLabel}>{t(lang, 'onbRealRate')}</Text>
-              <Text style={styles.rateValue}>
-                {formatCurrency(hourlyRate, currency, 2)} / h
-              </Text>
+              <AnimatedNumber
+                value={hourlyRate}
+                format={(v) => `${formatCurrency(v, currency, 2)} / h`}
+                style={styles.rateValue}
+              />
             </View>
           </View>
         )}
@@ -186,7 +189,11 @@ export function OnboardingFlow() {
         {step === 3 && (
           <View style={styles.stepBlock}>
             <Text style={styles.title}>{t(lang, 'onbStep3Title')}</Text>
-            <Text style={styles.subtitle}>{t(lang, 'onbStep3Sub')}</Text>
+            <Text style={styles.subtitle}>
+              {lang === 'es'
+                ? `Ejemplo con un capricho de ${formatCurrency(samplePrice, currency, 0)} invertido en S&P 500 a 10 años:`
+                : `Example with a ${formatCurrency(samplePrice, currency, 0)} impulse invested in S&P 500 for 10 years:`}
+            </Text>
 
             <View style={styles.impactCard}>
               <Text style={styles.impactKicker}>

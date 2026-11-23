@@ -16,7 +16,9 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { ContextualTipModal } from '../../components/ContextualTipModal';
+import { AnimatedNumber } from '../../components/AnimatedNumber';
 import { GrowthChart } from '../../components/GrowthChart';
+import { ScalePressable } from '../../components/ScalePressable';
 import {
   CURRENCIES,
   ETF_PRESETS,
@@ -42,6 +44,7 @@ import {
   formatCurrency,
   generateGrowthSeries,
 } from '../../utils/finance';
+import { persistImageUri } from '../../utils/media';
 import { openSystemSettings, scheduleQuarantineNotification } from '../../utils/notifications';
 
 const CATEGORIES = Object.keys(CATEGORY_META) as ImpulseCategory[];
@@ -186,7 +189,8 @@ export default function SimulatorScreen() {
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      setImageUri(result.assets[0].uri);
+      const storedUri = await persistImageUri(result.assets[0].uri);
+      setImageUri(storedUri);
     }
   };
 
@@ -370,9 +374,11 @@ export default function SimulatorScreen() {
         <View style={styles.metricsGrid}>
           <View style={[styles.metricBox, styles.metricWarning]}>
             <Text style={styles.metricKicker}>{t(lang, 'simHoursOfLife')}</Text>
-            <Text style={[styles.metricValue, { color: theme.warning }]}>
-              {lifeCost.hours.toFixed(1)} h
-            </Text>
+            <AnimatedNumber
+              value={lifeCost.hours}
+              format={(v) => `${v.toFixed(1)} h`}
+              style={[styles.metricValue, { color: theme.warning }]}
+            />
             <Text style={styles.metricSub}>
               {lifeCost.workDays.toFixed(1)} {t(lang, 'simWorkDays')}
               {frequency === 'monthly' ? ' / yr' : ''}
@@ -383,13 +389,13 @@ export default function SimulatorScreen() {
             <Text style={styles.metricKicker}>
               {t(lang, 'simFutureValue')} ({horizonYears} {t(lang, 'simYearsSuffix')})
             </Text>
-            <Text
+            <AnimatedNumber
+              value={futureValue}
+              format={(v) => formatCurrency(v, profile.currency, 0)}
               style={[styles.metricValue, { color: theme.accent }]}
               numberOfLines={1}
               adjustsFontSizeToFit
-            >
-              {formatCurrency(futureValue, profile.currency, 0)}
-            </Text>
+            />
             <Text style={styles.metricSub}>{activeRate}% / yr</Text>
           </View>
         </View>
@@ -603,10 +609,10 @@ export default function SimulatorScreen() {
             })}
           </View>
 
-          <Pressable style={styles.lockBtn} onPress={handleLockImpulse}>
+          <ScalePressable style={styles.lockBtn} onPress={handleLockImpulse}>
             <Ionicons name="lock-closed" size={18} color="#04150E" />
             <Text style={styles.lockBtnText}>{t(lang, 'simLockButton')}</Text>
-          </Pressable>
+          </ScalePressable>
         </View>
 
         <Text style={styles.disclaimer}>{t(lang, 'simDisclaimer')}</Text>

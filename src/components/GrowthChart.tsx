@@ -11,10 +11,10 @@ interface GrowthChartProps {
   yearsLabel: string;
 }
 
-const CHART_HEIGHT = 138;
-const PAD_TOP = 16;
+const CHART_HEIGHT = 148;
+const PAD_TOP = 24;
 const PAD_BOTTOM = 12;
-const PAD_X = 8;
+const PAD_X = 10;
 
 export function GrowthChart({ points, currency, yearsLabel }: GrowthChartProps) {
   const [width, setWidth] = useState(300);
@@ -53,14 +53,20 @@ export function GrowthChart({ points, currency, yearsLabel }: GrowthChartProps) 
       .map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`)
       .join(' ');
 
+    const lastPointData = points[points.length - 1];
+    const basePrincipal = Math.max(1, lastPointData.principal);
+    const multiplier = lastPointData.total / basePrincipal;
+
     return {
       linePath,
       areaPath,
       principalPath,
       lastPoint: last,
-      startTotal: points[0].total,
-      endTotal: points[points.length - 1].total,
-      endYear: points[points.length - 1].year,
+      endTotal: lastPointData.total,
+      endYear: lastPointData.year,
+      multiplier,
+      midY: PAD_TOP + drawH * 0.5,
+      topY: PAD_TOP,
     };
   }, [points, width]);
 
@@ -68,20 +74,44 @@ export function GrowthChart({ points, currency, yearsLabel }: GrowthChartProps) 
 
   return (
     <View style={styles.container} onLayout={onLayout}>
+      <View style={styles.multiplierBadge}>
+        <Text style={styles.multiplierText}>
+          ×{geometry.multiplier.toFixed(1)}
+        </Text>
+      </View>
+
       <Svg width={width} height={CHART_HEIGHT}>
         <Defs>
           <LinearGradient id="vaultGrad" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor={theme.accent} stopOpacity="0.32" />
+            <Stop offset="0" stopColor={theme.accent} stopOpacity="0.34" />
             <Stop offset="1" stopColor={theme.accent} stopOpacity="0.0" />
           </LinearGradient>
         </Defs>
 
         <Line
           x1={PAD_X}
+          y1={geometry.topY}
+          x2={width - PAD_X}
+          y2={geometry.topY}
+          stroke={theme.border}
+          strokeWidth={1}
+          strokeDasharray="3 5"
+        />
+        <Line
+          x1={PAD_X}
+          y1={geometry.midY}
+          x2={width - PAD_X}
+          y2={geometry.midY}
+          stroke={theme.border}
+          strokeWidth={1}
+          strokeDasharray="3 5"
+        />
+        <Line
+          x1={PAD_X}
           y1={CHART_HEIGHT - PAD_BOTTOM}
           x2={width - PAD_X}
           y2={CHART_HEIGHT - PAD_BOTTOM}
-          stroke={theme.border}
+          stroke={theme.borderStrong}
           strokeWidth={1}
         />
 
@@ -97,13 +127,20 @@ export function GrowthChart({ points, currency, yearsLabel }: GrowthChartProps) 
           d={geometry.linePath}
           fill="none"
           stroke={theme.accent}
-          strokeWidth={2.5}
+          strokeWidth={2.6}
           strokeLinecap="round"
         />
         <Circle
           cx={geometry.lastPoint.x}
           cy={geometry.lastPoint.y}
-          r={4.5}
+          r={8}
+          fill={theme.accent}
+          fillOpacity={0.22}
+        />
+        <Circle
+          cx={geometry.lastPoint.x}
+          cy={geometry.lastPoint.y}
+          r={4.2}
           fill={theme.accent}
           stroke={theme.bg}
           strokeWidth={2}
@@ -133,6 +170,24 @@ const styles = StyleSheet.create({
     paddingTop: SPACING.xs,
     paddingBottom: SPACING.sm,
     overflow: 'hidden',
+  },
+  multiplierBadge: {
+    position: 'absolute',
+    top: 10,
+    left: 12,
+    zIndex: 2,
+    backgroundColor: theme.accentDim,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.35)',
+    borderRadius: RADIUS.full,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  multiplierText: {
+    ...TABULAR_NUMS,
+    color: theme.accent,
+    fontSize: 11,
+    fontWeight: '800',
   },
   axisRow: {
     flexDirection: 'row',

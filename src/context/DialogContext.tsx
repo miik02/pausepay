@@ -87,7 +87,6 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
     setOptions(null);
 
     if (callback) {
-      // Pausa breve para que iOS cierre el Modal antes de encadenar otro pop-up
       setTimeout(() => {
         Promise.resolve(callback()).catch(() => {});
       }, 170);
@@ -140,6 +139,10 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
                 },
               ]}
             >
+              <Pressable style={styles.closeX} onPress={closeDialog} hitSlop={10}>
+                <Ionicons name="close" size={16} color={theme.textMuted} />
+              </Pressable>
+
               {options.icon && (
                 <View
                   style={[
@@ -226,6 +229,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  closeX: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    width: 28,
+    height: 28,
+    borderRadius: RADIUS.full,
+    backgroundColor: theme.bg,
+    borderWidth: 1,
+    borderColor: theme.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   iconBadge: {
     width: 48,
     height: 48,
@@ -241,6 +257,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textAlign: 'center',
     letterSpacing: -0.2,
+    paddingHorizontal: 18,
   },
   message: {
     color: theme.textSecondary,
@@ -255,7 +272,7 @@ const styles = StyleSheet.create({
   },
   btn: {
     width: '100%',
-    height: 48,
+    height: 46,
     borderRadius: RADIUS.md,
     alignItems: 'center',
     justifyContent: 'center',

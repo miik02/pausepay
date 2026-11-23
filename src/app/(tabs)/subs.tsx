@@ -11,8 +11,16 @@ import { useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { AddSubscriptionModal } from '../../components/AddSubscriptionModal';
+import { AnimatedNumber } from '../../components/AnimatedNumber';
 import { ContextualTipModal } from '../../components/ContextualTipModal';
+import { ScalePressable } from '../../components/ScalePressable';
+import { ShareStoryModal } from '../../components/ShareStoryModal';
+import { StoryPayload } from '../../components/StoryCard';
 import { SubBurnBar } from '../../components/SubBurnBar';
+import {
+  CelebrationPayload,
+  VaultCelebrationModal,
+} from '../../components/VaultCelebrationModal';
 import { FREE_LIMITS } from '../../constants/etfs';
 import { CATEGORY_META, t } from '../../constants/i18n';
 import { useApp } from '../../context/AppContext';
@@ -38,12 +46,17 @@ export default function SubsScreen() {
     markTutorialSeen,
     isPro,
     addSubscription,
+    updateSubscription,
+    renewSubscription,
     cancelSubscriptionAndRescue,
     deleteSubscription,
   } = useApp();
   const lang = profile.language;
 
   const [modalVisible, setModalVisible] = useState(false);
+  const [editingSub, setEditingSub] = useState<SubscriptionItem | null>(null);
+  const [celebration, setCelebration] = useState<CelebrationPayload | null>(null);
+  const [sharePayload, setSharePayload] = useState<StoryPayload | null>(null);
   const [showTip, setShowTip] = useState(false);
 
   useFocusEffect(
@@ -82,17 +95,23 @@ export default function SubsScreen() {
       return;
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setEditingSub(null);
     setModalVisible(true);
   };
 
-  const handleAddSubmit = async (sub: SubscriptionItem) => {
+  const handleSubSubmit = async (sub: SubscriptionItem, isEdit: boolean) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
     const { notificationId, permissionDenied } = await scheduleSubscriptionAlert(
       sub,
       profile.currency,
       lang
     );
-    await addSubscription({ ...sub, notificationId });
+
+    if (isEdit) {
+      await updateSubscription({ ...sub, notificationId });
+    } else {
+      await addSubscription({ ...sub, notificationId });
+    }
 
     if (permissionDenied) {
       setTimeout(() => {
@@ -108,6 +127,26 @@ export default function SubsScreen() {
         });
       }, 200);
     }
+  };
+
+  const handleRenewCycle = async (sub: SubscriptionItem) => {
+    const daysToAdd = sub.cycle === 'yearly' ? 365 : 30;
+    const base = Math.max(Date.now(), sub.nextBillingAt);
+    const nextBillingAt = base + daysToAdd * 24 * 3600 * 1000;
+    const { notificationId } = await scheduleSubscriptionAlert(
+      { ...sub, nextBillingAt },
+      profile.currency,
+      lang
+    );
+    await renewSubscription(sub.id, nextBillingAt, notificationId);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    showDialog({
+      title: t(lang, 'subsRenewedTitle'),
+      message: t(lang, 'subsRenewedMsg'),
+      icon: 'refresh-circle',
+      tone: 'accent',
+      actions: [{ label: okLabel, variant: 'primary' }],
+    });
   };
 
   const handleManageSub = (sub: SubscriptionItem) => {
@@ -126,25 +165,35 @@ export default function SubsScreen() {
           label: t(lang, 'subsActionRescue'),
           variant: 'primary',
           onPress: async () => {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-            await cancelSubscriptionAndRescue(sub.id);
-            showDialog({
-              title: t(lang, 'subsRescuedToastTitle'),
-              message: `+${formatCurrency(annual, profile.currency, 0)}/yr · ${t(lang, 'subsRescuedToastMsg')}`,
-              icon: 'sparkles',
-              tone: 'accent',
-              actions: [{ label: okLabel, variant: 'primary' }],
-            });
+            const rescued = await cancelSubscriptionAndRescue(sub.id);
+            if (rescued) {
+              setCelebration({
+                item: rescued,
+                amountSaved: annual,
+                hoursSaved: rescued.hoursCost,
+                futureValue: rescued.futureValue,
+                isSubscription: true,
+              });
+            }
+          },
+        },
+        {
+          label: t(lang, 'subsActionRenew'),
+          variant: 'secondary',
+          onPress: () => handleRenewCycle(sub),
+        },
+        {
+          label: t(lang, 'subsActionEdit'),
+          variant: 'secondary',
+          onPress: () => {
+            setEditingSub(sub);
+            setModalVisible(true);
           },
         },
         {
           label: t(lang, 'subsActionDelete'),
           variant: 'danger',
           onPress: () => deleteSubscription(sub.id),
-        },
-        {
-          label: t(lang, 'vaultCancel'),
-          variant: 'secondary',
         },
       ],
     });
@@ -187,33 +236,43 @@ export default function SubsScreen() {
       >
         <View style={styles.headerRow}>
           <Text style={styles.title}>{t(lang, 'subsTitle')}</Text>
-          <Pressable style={styles.addBtn} onPress={handleOpenAdd}>
+          <ScalePressable style={styles.addBtn} onPress={handleOpenAdd}>
             <Ionicons name="add" size={16} color="#04150E" />
             <Text style={styles.addBtnText}>{t(lang, 'subsAddBtn')}</Text>
-          </Pressable>
+          </ScalePressable>
         </View>
 
         <View style={styles.heroCard}>
           <Text style={styles.heroKicker}>{t(lang, 'subsHeroKicker')}</Text>
-          <Text style={styles.heroValue}>
-            {formatCurrency(subStats.yearlyBurn, profile.currency, 0)}
-          </Text>
+          <AnimatedNumber
+            value={subStats.yearlyBurn}
+            format={(v) => formatCurrency(v, profile.currency, 0)}
+            style={styles.heroValue}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+          />
           <Text style={styles.heroSub}>
             {formatCurrency(subStats.monthlyBurn, profile.currency, 1)} {t(lang, 'subsMonthlyEq')}
           </Text>
 
           <View style={styles.heroStatsRow}>
             <View style={styles.heroStatItem}>
-              <Text style={[styles.heroStatNum, { color: theme.warning }]}>
-                {subStats.yearlyHours.toFixed(1)} h
-              </Text>
+              <AnimatedNumber
+                value={subStats.yearlyHours}
+                format={(v) => `${v.toFixed(1)} h`}
+                style={[styles.heroStatNum, { color: theme.warning }]}
+              />
               <Text style={styles.heroStatLbl}>{t(lang, 'subsYearlyHours')}</Text>
             </View>
             <View style={styles.heroDivider} />
             <View style={styles.heroStatItem}>
-              <Text style={[styles.heroStatNum, { color: theme.accent }]}>
-                {formatCurrency(subStats.tenYearOpportunityCost, profile.currency, 0)}
-              </Text>
+              <AnimatedNumber
+                value={subStats.tenYearOpportunityCost}
+                format={(v) => formatCurrency(v, profile.currency, 0)}
+                style={[styles.heroStatNum, { color: theme.accent }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              />
               <Text style={styles.heroStatLbl}>{t(lang, 'subsTenYearCost')}</Text>
             </View>
             <View style={styles.heroDivider} />
@@ -251,8 +310,9 @@ export default function SubsScreen() {
             const hrs = calculateLifeCost(annual, hourlyRate).hours;
 
             return (
-              <Pressable
+              <ScalePressable
                 key={sub.id}
+                scaleTo={0.98}
                 style={[styles.subCard, isUrgent && styles.subCardUrgent]}
                 onPress={() => handleManageSub(sub)}
               >
@@ -313,7 +373,7 @@ export default function SubsScreen() {
                     {isUrgent ? t(lang, 'subsUrgentBadge') : t(lang, 'subsAlertBadge')} ›
                   </Text>
                 </View>
-              </Pressable>
+              </ScalePressable>
             );
           })
         )}
@@ -344,11 +404,34 @@ export default function SubsScreen() {
 
       <AddSubscriptionModal
         visible={modalVisible}
+        editingSub={editingSub}
         currency={profile.currency}
         lang={lang}
         hourlyRate={hourlyRate}
-        onClose={() => setModalVisible(false)}
-        onSubmit={handleAddSubmit}
+        onClose={() => {
+          setModalVisible(false);
+          setEditingSub(null);
+        }}
+        onSubmit={handleSubSubmit}
+      />
+
+      <VaultCelebrationModal
+        payload={celebration}
+        currency={profile.currency}
+        lang={lang}
+        onClose={() => setCelebration(null)}
+        onShare={(item) => {
+          setCelebration(null);
+          setTimeout(() => setSharePayload({ mode: 'impulse', item }), 190);
+        }}
+      />
+
+      <ShareStoryModal
+        payload={sharePayload}
+        currency={profile.currency}
+        lang={lang}
+        isPro={isPro}
+        onClose={() => setSharePayload(null)}
       />
 
       <ContextualTipModal
@@ -416,7 +499,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.9,
   },
   heroValue: {
-    ...TABULAR_NUMS,
     color: theme.danger,
     fontSize: 40,
     fontWeight: '800',
@@ -442,7 +524,6 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   heroStatNum: {
-    ...TABULAR_NUMS,
     color: theme.textPrimary,
     fontSize: 15,
     fontWeight: '800',

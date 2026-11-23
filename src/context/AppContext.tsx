@@ -21,6 +21,7 @@ import {
   getAnnualSubscriptionCost,
   getLocalDateKey,
 } from '../utils/finance';
+import { deletePersistedImage } from '../utils/media';
 import { cancelQuarantineNotification } from '../utils/notifications';
 import {
   DEFAULT_GOALS,
@@ -56,10 +57,21 @@ interface AppContextValue {
   setDevPro: (value: boolean) => void;
   updateProfile: (patch: Partial<UserProfile>) => Promise<void>;
   addImpulse: (item: ImpulseItem) => Promise<void>;
+  extendImpulseQuarantine: (
+    id: string,
+    newUnlockAt: number,
+    newNotificationId?: string
+  ) => Promise<void>;
   resolveImpulse: (id: string, status: 'resisted' | 'bought') => Promise<void>;
   deleteImpulse: (id: string) => Promise<void>;
   addSubscription: (sub: SubscriptionItem) => Promise<void>;
-  cancelSubscriptionAndRescue: (id: string) => Promise<void>;
+  updateSubscription: (sub: SubscriptionItem) => Promise<void>;
+  renewSubscription: (
+    id: string,
+    nextBillingAt: number,
+    newNotificationId?: string
+  ) => Promise<void>;
+  cancelSubscriptionAndRescue: (id: string) => Promise<ImpulseItem | null>;
   deleteSubscription: (id: string) => Promise<void>;
   saveActiveGoal: (goal: FreedomGoal) => Promise<void>;
   addGoal: (goal: FreedomGoal) => Promise<void>;
@@ -160,33 +172,61 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const resolveImpulse = useCallback(async (id: string, status: 'resisted' | 'bought') => {
-    setItems((prev) => {
-      const target = prev.find((it) => it.id === id);
-      if (target?.notificationId) {
-        cancelQuarantineNotification(target.notificationId).catch(() => {});
+  const extendImpulseQuarantine = useCallback(
+    async (id: string, newUnlockAt: number, newNotificationId?: string) => {
+      const existing = items.find((it) => it.id === id);
+      if (existing?.notificationId) {
+        cancelQuarantineNotification(existing.notificationId).catch(() => {});
       }
-      const next = prev.map((it) =>
-        it.id === id
-          ? { ...it, status, resolvedAt: Date.now(), notificationId: undefined }
-          : it
-      );
-      saveItems(next).catch(() => {});
-      return next;
-    });
-  }, []);
+      setItems((prev) => {
+        const next = prev.map((it) =>
+          it.id === id
+            ? { ...it, unlockAt: newUnlockAt, notificationId: newNotificationId }
+            : it
+        );
+        saveItems(next).catch(() => {});
+        return next;
+      });
+    },
+    [items]
+  );
 
-  const deleteImpulse = useCallback(async (id: string) => {
-    setItems((prev) => {
-      const target = prev.find((it) => it.id === id);
+  const resolveImpulse = useCallback(
+    async (id: string, status: 'resisted' | 'bought') => {
+      const target = items.find((it) => it.id === id);
       if (target?.notificationId) {
         cancelQuarantineNotification(target.notificationId).catch(() => {});
       }
-      const next = prev.filter((it) => it.id !== id);
-      saveItems(next).catch(() => {});
-      return next;
-    });
-  }, []);
+      setItems((prev) => {
+        const next = prev.map((it) =>
+          it.id === id
+            ? { ...it, status, resolvedAt: Date.now(), notificationId: undefined }
+            : it
+        );
+        saveItems(next).catch(() => {});
+        return next;
+      });
+    },
+    [items]
+  );
+
+  const deleteImpulse = useCallback(
+    async (id: string) => {
+      const target = items.find((it) => it.id === id);
+      if (target?.notificationId) {
+        cancelQuarantineNotification(target.notificationId).catch(() => {});
+      }
+      if (target?.imageUri) {
+        deletePersistedImage(target.imageUri);
+      }
+      setItems((prev) => {
+        const next = prev.filter((it) => it.id !== id);
+        saveItems(next).catch(() => {});
+        return next;
+      });
+    },
+    [items]
+  );
 
   const addSubscription = useCallback(async (sub: SubscriptionItem) => {
     setSubscriptions((prev) => {
@@ -196,14 +236,55 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const cancelSubscriptionAndRescue = useCallback(
-    async (id: string) => {
-      let targetSub: SubscriptionItem | undefined;
+  const updateSubscription = useCallback(
+    async (updated: SubscriptionItem) => {
+      const existing = subscriptions.find((s) => s.id === updated.id);
+      if (existing?.notificationId && existing.notificationId !== updated.notificationId) {
+        cancelQuarantineNotification(existing.notificationId).catch(() => {});
+      }
       setSubscriptions((prev) => {
-        targetSub = prev.find((s) => s.id === id);
-        if (targetSub?.notificationId) {
-          cancelQuarantineNotification(targetSub.notificationId).catch(() => {});
-        }
+        const next = prev.map((s) => (s.id === updated.id ? updated : s));
+        saveSubscriptions(next).catch(() => {});
+        return next;
+      });
+    },
+    [subscriptions]
+  );
+
+  const renewSubscription = useCallback(
+    async (id: string, nextBillingAt: number, newNotificationId?: string) => {
+      const existing = subscriptions.find((s) => s.id === id);
+      if (existing?.notificationId) {
+        cancelQuarantineNotification(existing.notificationId).catch(() => {});
+      }
+      setSubscriptions((prev) => {
+        const next = prev.map((s) =>
+          s.id === id
+            ? {
+                ...s,
+                cycle: s.cycle === 'trial' ? 'monthly' : s.cycle,
+                nextBillingAt,
+                notificationId: newNotificationId,
+              }
+            : s
+        );
+        saveSubscriptions(next).catch(() => {});
+        return next;
+      });
+    },
+    [subscriptions]
+  );
+
+  const cancelSubscriptionAndRescue = useCallback(
+    async (id: string): Promise<ImpulseItem | null> => {
+      const targetSub = subscriptions.find((s) => s.id === id);
+      if (!targetSub) return null;
+
+      if (targetSub.notificationId) {
+        cancelQuarantineNotification(targetSub.notificationId).catch(() => {});
+      }
+
+      setSubscriptions((prev) => {
         const next = prev.map((s) =>
           s.id === id
             ? {
@@ -218,21 +299,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return next;
       });
 
-      if (!targetSub) return;
-
-      const sub = targetSub;
       const now = Date.now();
-      const frequency = sub.cycle === 'monthly' ? 'monthly' : 'once';
-      const annualCost = getAnnualSubscriptionCost(sub.price, sub.cycle);
+      const frequency = targetSub.cycle === 'monthly' ? 'monthly' : 'once';
+      const annualCost = getAnnualSubscriptionCost(targetSub.price, targetSub.cycle);
       const life = calculateLifeCost(annualCost, hourlyRate);
-      const futureVal = calculateFutureValue(sub.price, 10, 10, frequency);
+      const futureVal = calculateFutureValue(targetSub.price, 10, 10, frequency);
 
       const rescuedItem: ImpulseItem = {
         id: `sub-${now}-${Math.random().toString(36).slice(2, 6)}`,
-        name: `${t(profile.language, 'subsCancelledPrefix')} ${sub.name}`,
-        price: sub.price,
+        name: `${t(profile.language, 'subsCancelledPrefix')} ${targetSub.name}`,
+        price: targetSub.price,
         frequency,
-        category: sub.category,
+        category: targetSub.category,
         etfId: 'sp500',
         annualRate: 10,
         horizonYears: 10,
@@ -249,36 +327,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         saveItems(next).catch(() => {});
         return next;
       });
+
+      return rescuedItem;
     },
-    [hourlyRate, profile.language]
+    [subscriptions, hourlyRate, profile.language]
   );
 
-  const deleteSubscription = useCallback(async (id: string) => {
-    setSubscriptions((prev) => {
-      const target = prev.find((s) => s.id === id);
+  const deleteSubscription = useCallback(
+    async (id: string) => {
+      const target = subscriptions.find((s) => s.id === id);
       if (target?.notificationId) {
         cancelQuarantineNotification(target.notificationId).catch(() => {});
       }
-      const next = prev.filter((s) => s.id !== id);
-      saveSubscriptions(next).catch(() => {});
-      return next;
-    });
-  }, []);
-
-  const saveActiveGoal = useCallback(
-    async (updated: FreedomGoal) => {
-      setGoals((prev) => {
-        const exists = prev.some((g) => g.id === updated.id);
-        const next = exists
-          ? prev.map((g) => (g.id === updated.id ? updated : g))
-          : [...prev, updated];
-        saveGoals(next, updated.id).catch(() => {});
+      setSubscriptions((prev) => {
+        const next = prev.filter((s) => s.id !== id);
+        saveSubscriptions(next).catch(() => {});
         return next;
       });
-      setActiveGoalId(updated.id);
     },
-    []
+    [subscriptions]
   );
+
+  const saveActiveGoal = useCallback(async (updated: FreedomGoal) => {
+    setGoals((prev) => {
+      const exists = prev.some((g) => g.id === updated.id);
+      const next = exists
+        ? prev.map((g) => (g.id === updated.id ? updated : g))
+        : [...prev, updated];
+      saveGoals(next, updated.id).catch(() => {});
+      return next;
+    });
+    setActiveGoalId(updated.id);
+  }, []);
 
   const addGoal = useCallback(async (goal: FreedomGoal) => {
     setGoals((prev) => {
@@ -289,16 +369,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setActiveGoalId(goal.id);
   }, []);
 
-  const selectGoal = useCallback(
-    async (goalId: string) => {
-      setActiveGoalId(goalId);
-      setGoals((prev) => {
-        saveGoals(prev, goalId).catch(() => {});
-        return prev;
-      });
-    },
-    []
-  );
+  const selectGoal = useCallback(async (goalId: string) => {
+    setActiveGoalId(goalId);
+    setGoals((prev) => {
+      saveGoals(prev, goalId).catch(() => {});
+      return prev;
+    });
+  }, []);
 
   const toggleTodayClean = useCallback(async (): Promise<boolean> => {
     const todayKey = getLocalDateKey();
@@ -382,9 +459,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setDevPro,
       updateProfile,
       addImpulse,
+      extendImpulseQuarantine,
       resolveImpulse,
       deleteImpulse,
       addSubscription,
+      updateSubscription,
+      renewSubscription,
       cancelSubscriptionAndRescue,
       deleteSubscription,
       saveActiveGoal,
@@ -412,9 +492,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setDevPro,
       updateProfile,
       addImpulse,
+      extendImpulseQuarantine,
       resolveImpulse,
       deleteImpulse,
       addSubscription,
+      updateSubscription,
+      renewSubscription,
       cancelSubscriptionAndRescue,
       deleteSubscription,
       saveActiveGoal,
