@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   Pressable,
@@ -11,20 +11,28 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
+import { Ionicons } from '@expo/vector-icons';
 import { CURRENCIES } from '../../constants/etfs';
 import { t } from '../../constants/i18n';
 import { useApp } from '../../context/AppContext';
 import { RADIUS, SPACING, TABULAR_NUMS, theme } from '../../theme/tokens';
 import { CurrencyCode, LanguageCode } from '../../types';
+import { exportBackupFile, pickAndParseBackup } from '../../utils/backup';
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
-  const { profile, isPro, setDevPro, updateProfile } = useApp();
+  const { profile, items, isPro, setDevPro, updateProfile, replaceAllData } = useApp();
   const lang = profile.language;
 
   const [income, setIncome] = useState(String(profile.monthlyNetIncome));
   const [hours, setHours] = useState(String(profile.weeklyHours));
   const [commute, setCommute] = useState(String(profile.commuteWeeklyHours));
+
+  useEffect(() => {
+    setIncome(String(profile.monthlyNetIncome));
+    setHours(String(profile.weeklyHours));
+    setCommute(String(profile.commuteWeeklyHours));
+  }, [profile.monthlyNetIncome, profile.weeklyHours, profile.commuteWeeklyHours]);
 
   const handleSave = async () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
@@ -36,14 +44,52 @@ export default function SettingsScreen() {
     Alert.alert('PausePay', t(lang, 'settingsSaved'));
   };
 
+  const handleExport = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    const res = await exportBackupFile(profile, items);
+    if (!res.ok) {
+      Alert.alert('PausePay', t(lang, 'backupExportErr'));
+    }
+  };
+
+  const handleImport = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    const res = await pickAndParseBackup();
+    if (res.status === 'cancelled') return;
+
+    if (res.status === 'invalid') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+      Alert.alert(t(lang, 'backupInvalidTitle'), t(lang, 'backupInvalidMsg'));
+      return;
+    }
+
+    const count = res.data.items.length;
+    Alert.alert(
+      t(lang, 'backupConfirmTitle'),
+      `${t(lang, 'backupConfirmMsg')} ${count}`,
+      [
+        { text: t(lang, 'vaultCancel'), style: 'cancel' },
+        {
+          text: t(lang, 'backupConfirmAction'),
+          onPress: async () => {
+            await replaceAllData(res.data.profile, res.data.items);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+            Alert.alert(t(lang, 'backupSuccessTitle'), t(lang, 'backupSuccessMsg'));
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <ScrollView
       style={styles.root}
       contentContainerStyle={[
         styles.content,
-        { paddingTop: insets.top + 12, paddingBottom: 32 },
+        { paddingTop: insets.top + 12, paddingBottom: 36 },
       ]}
       keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
     >
       <Text style={styles.title}>{t(lang, 'settingsTitle')}</Text>
 
@@ -109,6 +155,25 @@ export default function SettingsScreen() {
         </Pressable>
       </View>
 
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>{t(lang, 'settingsBackupTitle')}</Text>
+        <Text style={styles.subText}>{t(lang, 'settingsBackupSub')}</Text>
+
+        <View style={styles.backupRow}>
+          <Pressable style={styles.secondaryBtn} onPress={handleExport}>
+            <Ionicons name="download-outline" size={16} color={theme.accent} />
+            <Text style={styles.secondaryBtnText}>{t(lang, 'settingsExportBtn')}</Text>
+          </Pressable>
+
+          <Pressable style={styles.secondaryBtn} onPress={handleImport}>
+            <Ionicons name="cloud-upload-outline" size={16} color={theme.textPrimary} />
+            <Text style={[styles.secondaryBtnText, { color: theme.textPrimary }]}>
+              {t(lang, 'settingsImportBtn')}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+
       {__DEV__ && (
         <View style={styles.devCard}>
           <View style={styles.devRow}>
@@ -155,7 +220,11 @@ const styles = StyleSheet.create({
     color: theme.textPrimary,
     fontSize: 16,
     fontWeight: '700',
-    marginBottom: 4,
+  },
+  subText: {
+    color: theme.textSecondary,
+    fontSize: 12,
+    lineHeight: 17,
   },
   label: {
     color: theme.textSecondary,
@@ -210,6 +279,26 @@ const styles = StyleSheet.create({
     color: '#04150E',
     fontSize: 15,
     fontWeight: '800',
+  },
+  backupRow: {
+    gap: 8,
+    marginTop: 4,
+  },
+  secondaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: theme.bg,
+    borderWidth: 1,
+    borderColor: theme.borderStrong,
+    borderRadius: RADIUS.md,
+    paddingVertical: 13,
+  },
+  secondaryBtnText: {
+    color: theme.accent,
+    fontSize: 14,
+    fontWeight: '700',
   },
   devCard: {
     backgroundColor: theme.surface,

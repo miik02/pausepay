@@ -12,6 +12,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { ResolveImpulseModal } from '../../components/ResolveImpulseModal';
+import { ShareStoryModal } from '../../components/ShareStoryModal';
+import { StoryPayload } from '../../components/StoryCard';
 import { FREE_LIMITS } from '../../constants/etfs';
 import { CATEGORY_META, t } from '../../constants/i18n';
 import { useApp } from '../../context/AppContext';
@@ -38,8 +40,13 @@ export default function VaultScreen() {
 
   const [tab, setTab] = useState<ImpulseStatus>('quarantine');
   const [selectedItem, setSelectedItem] = useState<ImpulseItem | null>(null);
+  const [sharePayload, setSharePayload] = useState<StoryPayload | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const [victoryInfo, setVictoryInfo] = useState<{ amount: number; hours: number } | null>(null);
+  const [victoryInfo, setVictoryInfo] = useState<{
+    item: ImpulseItem;
+    amount: number;
+    hours: number;
+  } | null>(null);
 
   const bannerAnim = useRef(new Animated.Value(0)).current;
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -52,9 +59,9 @@ export default function VaultScreen() {
     };
   }, []);
 
-  const showVictoryBanner = (amount: number, hours: number) => {
+  const showVictoryBanner = (item: ImpulseItem, amount: number, hours: number) => {
     if (bannerTimer.current) clearTimeout(bannerTimer.current);
-    setVictoryInfo({ amount, hours });
+    setVictoryInfo({ item, amount, hours });
     bannerAnim.setValue(0);
     Animated.spring(bannerAnim, {
       toValue: 1,
@@ -69,7 +76,7 @@ export default function VaultScreen() {
         duration: 240,
         useNativeDriver: true,
       }).start(() => setVictoryInfo(null));
-    }, 3600);
+    }, 5500);
   };
 
   const filteredItems = useMemo(
@@ -108,7 +115,7 @@ export default function VaultScreen() {
     setSelectedItem(null);
     await resolveImpulse(item.id, 'resisted');
     const savedNow = item.frequency === 'monthly' ? item.price * 12 : item.price;
-    showVictoryBanner(savedNow, item.hoursCost);
+    showVictoryBanner({ ...item, status: 'resisted' }, savedNow, item.hoursCost);
   };
 
   const handleBought = async (item: ImpulseItem) => {
@@ -140,7 +147,19 @@ export default function VaultScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.title}>{t(lang, 'vaultTitle')}</Text>
+        <View style={styles.headerRow}>
+          <Text style={styles.title}>{t(lang, 'vaultTitle')}</Text>
+          <Pressable
+            style={styles.shareHeroBtn}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+              setSharePayload({ mode: 'vault', stats: vaultStats });
+            }}
+          >
+            <Ionicons name="share-outline" size={15} color={theme.accent} />
+            <Text style={styles.shareHeroText}>{t(lang, 'vaultShareBtn')}</Text>
+          </Pressable>
+        </View>
 
         {victoryInfo && (
           <Animated.View
@@ -159,7 +178,7 @@ export default function VaultScreen() {
               },
             ]}
           >
-            <Pressable style={styles.victoryInner} onPress={() => setVictoryInfo(null)}>
+            <View style={styles.victoryInner}>
               <Ionicons name="sparkles" size={20} color={theme.accent} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.victoryTitle}>{t(lang, 'victoryTitle')}</Text>
@@ -167,7 +186,18 @@ export default function VaultScreen() {
                   +{formatCurrency(victoryInfo.amount, profile.currency, 0)} · +{victoryInfo.hours.toFixed(1)}h {t(lang, 'victorySub')}
                 </Text>
               </View>
-            </Pressable>
+              <Pressable
+                style={styles.victoryShareBtn}
+                onPress={() => {
+                  const target = victoryInfo.item;
+                  setVictoryInfo(null);
+                  setSharePayload({ mode: 'impulse', item: target });
+                }}
+              >
+                <Ionicons name="share-social-outline" size={14} color="#04150E" />
+                <Text style={styles.victoryShareText}>{t(lang, 'victoryShareAction')}</Text>
+              </Pressable>
+            </View>
           </Animated.View>
         )}
 
@@ -264,6 +294,8 @@ export default function VaultScreen() {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
                   if (item.status === 'quarantine') {
                     setSelectedItem(item);
+                  } else if (item.status === 'resisted') {
+                    setSharePayload({ mode: 'impulse', item });
                   } else {
                     confirmDelete(item);
                   }
@@ -296,16 +328,37 @@ export default function VaultScreen() {
                     </View>
                   </View>
 
-                  <Text
-                    style={[
-                      styles.itemPrice,
-                      item.status === 'resisted' && { color: theme.accent },
-                      item.status === 'bought' && { color: theme.textSecondary },
-                    ]}
-                  >
-                    {formatCurrency(item.price, profile.currency, 0)}
-                    {item.frequency === 'monthly' ? '/m' : ''}
-                  </Text>
+                  <View style={styles.rightActions}>
+                    <Text
+                      style={[
+                        styles.itemPrice,
+                        item.status === 'resisted' && { color: theme.accent },
+                        item.status === 'bought' && { color: theme.textSecondary },
+                      ]}
+                    >
+                      {formatCurrency(item.price, profile.currency, 0)}
+                      {item.frequency === 'monthly' ? '/m' : ''}
+                    </Text>
+
+                    {item.status === 'resisted' && (
+                      <View style={styles.inlineBtns}>
+                        <Pressable
+                          style={styles.miniIconBtn}
+                          onPress={() => setSharePayload({ mode: 'impulse', item })}
+                          hitSlop={8}
+                        >
+                          <Ionicons name="share-outline" size={14} color={theme.accent} />
+                        </Pressable>
+                        <Pressable
+                          style={styles.miniIconBtn}
+                          onPress={() => confirmDelete(item)}
+                          hitSlop={8}
+                        >
+                          <Ionicons name="trash-outline" size={14} color={theme.textMuted} />
+                        </Pressable>
+                      </View>
+                    )}
+                  </View>
                 </View>
 
                 {item.status === 'quarantine' && (
@@ -390,6 +443,14 @@ export default function VaultScreen() {
         onBought={handleBought}
         onDelete={confirmDelete}
       />
+
+      <ShareStoryModal
+        payload={sharePayload}
+        currency={profile.currency}
+        lang={lang}
+        isPro={isPro}
+        onClose={() => setSharePayload(null)}
+      />
     </View>
   );
 }
@@ -403,11 +464,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.md,
     gap: 14,
   },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   title: {
     color: theme.textPrimary,
     fontSize: 24,
     fontWeight: '800',
     letterSpacing: -0.4,
+  },
+  shareHeroBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: theme.accentDim,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.35)',
+    borderRadius: RADIUS.full,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  shareHeroText: {
+    color: theme.accent,
+    fontSize: 12,
+    fontWeight: '800',
   },
   victoryBanner: {
     backgroundColor: theme.accentDim,
@@ -419,19 +501,33 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    padding: 14,
+    padding: 12,
   },
   victoryTitle: {
     color: theme.accent,
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '800',
   },
   victorySub: {
     ...TABULAR_NUMS,
     color: theme.textPrimary,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     marginTop: 2,
+  },
+  victoryShareBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: theme.accent,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: RADIUS.full,
+  },
+  victoryShareText: {
+    color: '#04150E',
+    fontSize: 11,
+    fontWeight: '800',
   },
   heroCard: {
     backgroundColor: theme.surface,
@@ -578,11 +674,29 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
   },
+  rightActions: {
+    alignItems: 'flex-end',
+    gap: 6,
+  },
   itemPrice: {
     ...TABULAR_NUMS,
     color: theme.warning,
     fontSize: 16,
     fontWeight: '800',
+  },
+  inlineBtns: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  miniIconBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: RADIUS.full,
+    backgroundColor: theme.bg,
+    borderWidth: 1,
+    borderColor: theme.border,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   progressWrap: {
     gap: 6,
