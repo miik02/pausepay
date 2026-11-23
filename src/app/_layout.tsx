@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -6,9 +6,14 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { OnboardingFlow } from '../components/OnboardingFlow';
 import { AppProvider, useApp } from '../context/AppContext';
 import { theme } from '../theme/tokens';
+import { configureNotifications } from '../utils/notifications';
 
 function RootNavigator() {
   const { isReady, profile } = useApp();
+
+  useEffect(() => {
+    configureNotifications();
+  }, []);
 
   if (!isReady) {
     return <View style={styles.splash} />;

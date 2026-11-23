@@ -28,6 +28,7 @@ import { RADIUS, SPACING, TABULAR_NUMS, theme } from '../../theme/tokens';
 import {
   EtfPresetId,
   ImpulseCategory,
+  ImpulseItem,
   PurchaseFrequency,
   QuarantineHours,
 } from '../../types';
@@ -37,8 +38,10 @@ import {
   formatCurrency,
   generateGrowthSeries,
 } from '../../utils/finance';
+import { openSystemSettings, scheduleQuarantineNotification } from '../../utils/notifications';
 
 const CATEGORIES = Object.keys(CATEGORY_META) as ImpulseCategory[];
+const QUICK_AMOUNTS = [25, 60, 120, 300, 600];
 
 export default function SimulatorScreen() {
   const insets = useSafeAreaInsets();
@@ -128,7 +131,7 @@ export default function SimulatorScreen() {
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
     const now = Date.now();
-    await addImpulse({
+    const baseItem: ImpulseItem = {
       id: `${now}-${Math.random().toString(36).slice(2, 7)}`,
       name: name.trim() || t(lang, 'simDefaultName'),
       price: numericPrice,
@@ -142,10 +145,31 @@ export default function SimulatorScreen() {
       status: 'quarantine',
       createdAt: now,
       unlockAt: now + quarantineHours * 3600 * 1000,
-    });
+    };
 
+    const { notificationId, permissionDenied } = await scheduleQuarantineNotification(
+      baseItem,
+      profile.currency,
+      lang
+    );
+
+    await addImpulse({ ...baseItem, notificationId });
     setName('');
-    router.push('/(tabs)/vault');
+
+    if (permissionDenied) {
+      Alert.alert(t(lang, 'notifDeniedTitle'), t(lang, 'notifDeniedMsg'), [
+        { text: t(lang, 'notifContinue'), style: 'cancel', onPress: () => router.push('/(tabs)/vault') },
+        {
+          text: t(lang, 'notifOpenSettings'),
+          onPress: () => {
+            openSystemSettings();
+            router.push('/(tabs)/vault');
+          },
+        },
+      ]);
+    } else {
+      router.push('/(tabs)/vault');
+    }
   };
 
   return (
@@ -183,6 +207,26 @@ export default function SimulatorScreen() {
               maxLength={8}
             />
           </View>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRow}>
+            {QUICK_AMOUNTS.map((amt) => {
+              const selected = numericPrice === amt;
+              return (
+                <Pressable
+                  key={amt}
+                  style={[styles.quickChip, selected && styles.quickChipActive]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                    setPriceText(String(amt));
+                  }}
+                >
+                  <Text style={[styles.quickChipText, selected && styles.quickChipTextActive]}>
+                    {formatCurrency(amt, profile.currency, 0)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
 
           <TextInput
             style={styles.nameInput}
@@ -237,7 +281,11 @@ export default function SimulatorScreen() {
             <Text style={styles.metricKicker}>
               {t(lang, 'simFutureValue')} ({horizonYears} {t(lang, 'simYearsSuffix')})
             </Text>
-            <Text style={[styles.metricValue, { color: theme.accent }]} numberOfLines={1} adjustsFontSizeToFit>
+            <Text
+              style={[styles.metricValue, { color: theme.accent }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+            >
               {formatCurrency(futureValue, profile.currency, 0)}
             </Text>
             <Text style={styles.metricSub}>{activeRate}% / yr</Text>
@@ -433,6 +481,31 @@ const styles = StyleSheet.create({
     fontSize: 44,
     fontWeight: '800',
     paddingVertical: 0,
+  },
+  quickRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  quickChip: {
+    backgroundColor: theme.bg,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: theme.border,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+  },
+  quickChipActive: {
+    backgroundColor: theme.accentDim,
+    borderColor: theme.accent,
+  },
+  quickChipText: {
+    ...TABULAR_NUMS,
+    color: theme.textSecondary,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  quickChipTextActive: {
+    color: theme.accent,
   },
   nameInput: {
     backgroundColor: theme.bg,

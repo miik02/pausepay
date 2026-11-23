@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { ImpulseItem, UserProfile, VaultStats } from '../types';
 import { calculateHourlyRate, calculateVaultStats } from '../utils/finance';
+import { cancelQuarantineNotification } from '../utils/notifications';
 import { DEFAULT_PROFILE, loadItems, loadProfile, saveItems, saveProfile } from '../utils/storage';
 
 interface AppContextValue {
@@ -73,8 +74,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const resolveImpulse = useCallback(async (id: string, status: 'resisted' | 'bought') => {
     setItems((prev) => {
+      const target = prev.find((it) => it.id === id);
+      if (target?.notificationId) {
+        cancelQuarantineNotification(target.notificationId).catch(() => {});
+      }
       const next = prev.map((it) =>
-        it.id === id ? { ...it, status, resolvedAt: Date.now() } : it
+        it.id === id
+          ? { ...it, status, resolvedAt: Date.now(), notificationId: undefined }
+          : it
       );
       saveItems(next).catch(() => {});
       return next;
@@ -83,6 +90,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const deleteImpulse = useCallback(async (id: string) => {
     setItems((prev) => {
+      const target = prev.find((it) => it.id === id);
+      if (target?.notificationId) {
+        cancelQuarantineNotification(target.notificationId).catch(() => {});
+      }
       const next = prev.filter((it) => it.id !== id);
       saveItems(next).catch(() => {});
       return next;
