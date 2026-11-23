@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
 import {
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,6 +14,7 @@ import { SubBurnBar } from '../../components/SubBurnBar';
 import { FREE_LIMITS } from '../../constants/etfs';
 import { CATEGORY_META, t } from '../../constants/i18n';
 import { useApp } from '../../context/AppContext';
+import { useDialog } from '../../context/DialogContext';
 import { RADIUS, SPACING, TABULAR_NUMS, theme } from '../../theme/tokens';
 import { SubscriptionItem } from '../../types';
 import {
@@ -26,6 +26,7 @@ import { openSystemSettings, scheduleSubscriptionAlert } from '../../utils/notif
 
 export default function SubsScreen() {
   const insets = useSafeAreaInsets();
+  const { showDialog } = useDialog();
   const {
     profile,
     subscriptions,
@@ -53,10 +54,18 @@ export default function SubsScreen() {
     [subscriptions]
   );
 
+  const okLabel = lang === 'es' ? 'Entendido' : 'Got it';
+
   const handleOpenAdd = () => {
     if (!isPro && subStats.activeCount >= FREE_LIMITS.maxActiveSubscriptions) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
-      Alert.alert(t(lang, 'subsLimitTitle'), t(lang, 'subsLimitMsg'));
+      showDialog({
+        title: t(lang, 'subsLimitTitle'),
+        message: t(lang, 'subsLimitMsg'),
+        icon: 'lock-closed',
+        tone: 'warning',
+        actions: [{ label: okLabel, variant: 'warning' }],
+      });
       return;
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -73,31 +82,77 @@ export default function SubsScreen() {
     await addSubscription({ ...sub, notificationId });
 
     if (permissionDenied) {
-      Alert.alert(t(lang, 'notifDeniedTitle'), t(lang, 'notifDeniedMsg'), [
-        { text: t(lang, 'notifContinue'), style: 'cancel' },
-        { text: t(lang, 'notifOpenSettings'), onPress: openSystemSettings },
-      ]);
+      setTimeout(() => {
+        showDialog({
+          title: t(lang, 'notifDeniedTitle'),
+          message: t(lang, 'notifDeniedMsg'),
+          icon: 'notifications-off-outline',
+          tone: 'warning',
+          actions: [
+            { label: t(lang, 'notifOpenSettings'), variant: 'primary', onPress: openSystemSettings },
+            { label: t(lang, 'notifContinue'), variant: 'secondary' },
+          ],
+        });
+      }, 200);
     }
   };
 
   const handleManageSub = (sub: SubscriptionItem) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    Alert.alert(sub.name, t(lang, 'subsActionMsg'), [
-      { text: t(lang, 'vaultCancel'), style: 'cancel' },
-      {
-        text: t(lang, 'subsActionDelete'),
-        style: 'destructive',
-        onPress: () => deleteSubscription(sub.id),
-      },
-      {
-        text: t(lang, 'subsActionRescue'),
-        onPress: async () => {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-          await cancelSubscriptionAndRescue(sub.id);
-          Alert.alert(t(lang, 'subsRescuedToastTitle'), t(lang, 'subsRescuedToastMsg'));
+    const annual = getAnnualSubscriptionCost(sub.price, sub.cycle);
+    const hrs = calculateLifeCost(annual, hourlyRate).hours;
+    const summaryLine = `${formatCurrency(annual, profile.currency, 0)}/yr · ${hrs.toFixed(1)} h`;
+
+    showDialog({
+      title: sub.name,
+      message: `${summaryLine}\n\n${t(lang, 'subsActionMsg')}`,
+      icon: 'shield-checkmark',
+      tone: 'accent',
+      actions: [
+        {
+          label: t(lang, 'subsActionRescue'),
+          variant: 'primary',
+          onPress: async () => {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+            await cancelSubscriptionAndRescue(sub.id);
+            showDialog({
+              title: t(lang, 'subsRescuedToastTitle'),
+              message: `+${formatCurrency(annual, profile.currency, 0)}/yr · ${t(lang, 'subsRescuedToastMsg')}`,
+              icon: 'sparkles',
+              tone: 'accent',
+              actions: [{ label: okLabel, variant: 'primary' }],
+            });
+          },
         },
-      },
-    ]);
+        {
+          label: t(lang, 'subsActionDelete'),
+          variant: 'danger',
+          onPress: () => deleteSubscription(sub.id),
+        },
+        {
+          label: t(lang, 'vaultCancel'),
+          variant: 'secondary',
+        },
+      ],
+    });
+  };
+
+  const handleDeleteCancelled = (sub: SubscriptionItem) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    showDialog({
+      title: t(lang, 'vaultDeleteTitle'),
+      message: t(lang, 'vaultDeleteMsg'),
+      icon: 'trash-outline',
+      tone: 'danger',
+      actions: [
+        {
+          label: t(lang, 'vaultDeleteConfirm'),
+          variant: 'danger',
+          onPress: () => deleteSubscription(sub.id),
+        },
+        { label: t(lang, 'vaultCancel'), variant: 'secondary' },
+      ],
+    });
   };
 
   const getCycleLabel = (cycle: SubscriptionItem['cycle']) => {
@@ -259,16 +314,7 @@ export default function SubsScreen() {
               <Pressable
                 key={sub.id}
                 style={styles.cancelledCard}
-                onPress={() =>
-                  Alert.alert(t(lang, 'vaultDeleteTitle'), t(lang, 'vaultDeleteMsg'), [
-                    { text: t(lang, 'vaultCancel'), style: 'cancel' },
-                    {
-                      text: t(lang, 'vaultDeleteConfirm'),
-                      style: 'destructive',
-                      onPress: () => deleteSubscription(sub.id),
-                    },
-                  ])
-                }
+                onPress={() => handleDeleteCancelled(sub)}
               >
                 <View style={styles.cancelledLeft}>
                   <Ionicons name="checkmark-circle" size={16} color={theme.accent} />

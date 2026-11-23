@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert,
   Animated,
   Pressable,
   ScrollView,
@@ -17,6 +16,7 @@ import { StoryPayload } from '../../components/StoryCard';
 import { FREE_LIMITS } from '../../constants/etfs';
 import { CATEGORY_META, t } from '../../constants/i18n';
 import { useApp } from '../../context/AppContext';
+import { useDialog } from '../../context/DialogContext';
 import { RADIUS, SPACING, TABULAR_NUMS, theme } from '../../theme/tokens';
 import { ImpulseCategory, ImpulseItem, ImpulseStatus } from '../../types';
 import { formatCurrency } from '../../utils/finance';
@@ -35,6 +35,7 @@ function formatCountdown(remainingMs: number, lang: 'es' | 'en'): string {
 
 export default function VaultScreen() {
   const insets = useSafeAreaInsets();
+  const { showDialog } = useDialog();
   const { profile, items, vaultStats, isPro, resolveImpulse, deleteImpulse } = useApp();
   const lang = profile.language;
 
@@ -124,18 +125,33 @@ export default function VaultScreen() {
   };
 
   const confirmDelete = (item: ImpulseItem) => {
-    Alert.alert(t(lang, 'vaultDeleteTitle'), t(lang, 'vaultDeleteMsg'), [
-      { text: t(lang, 'vaultCancel'), style: 'cancel' },
-      {
-        text: t(lang, 'vaultDeleteConfirm'),
-        style: 'destructive',
-        onPress: async () => {
-          setSelectedItem(null);
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-          await deleteImpulse(item.id);
-        },
-      },
-    ]);
+    const wasSheetOpen = Boolean(selectedItem);
+    if (wasSheetOpen) {
+      setSelectedItem(null);
+    }
+    const openConfirm = () => {
+      showDialog({
+        title: t(lang, 'vaultDeleteTitle'),
+        message: `${item.name}\n\n${t(lang, 'vaultDeleteMsg')}`,
+        icon: 'trash-outline',
+        tone: 'danger',
+        actions: [
+          {
+            label: t(lang, 'vaultDeleteConfirm'),
+            variant: 'danger',
+            onPress: async () => {
+              await deleteImpulse(item.id);
+            },
+          },
+          { label: t(lang, 'vaultCancel'), variant: 'secondary' },
+        ],
+      });
+    };
+    if (wasSheetOpen) {
+      setTimeout(openConfirm, 190);
+    } else {
+      openConfirm();
+    }
   };
 
   return (

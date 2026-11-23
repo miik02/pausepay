@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -24,6 +23,7 @@ import {
 } from '../../constants/etfs';
 import { CATEGORY_META, t } from '../../constants/i18n';
 import { useApp } from '../../context/AppContext';
+import { useDialog } from '../../context/DialogContext';
 import { RADIUS, SPACING, TABULAR_NUMS, theme } from '../../theme/tokens';
 import {
   EtfPresetId,
@@ -46,6 +46,7 @@ const QUICK_AMOUNTS = [25, 60, 120, 300, 600];
 export default function SimulatorScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { showDialog } = useDialog();
   const { profile, hourlyRate, vaultStats, isPro, addImpulse } = useApp();
   const lang = profile.language;
   const currencySymbol = CURRENCIES[profile.currency].symbol;
@@ -86,9 +87,17 @@ export default function SimulatorScreen() {
     [numericPrice, activeRate, horizonYears, frequency]
   );
 
+  const okLabel = lang === 'es' ? 'Entendido' : 'Got it';
+
   const promptPro = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
-    Alert.alert(t(lang, 'simProLockedTitle'), t(lang, 'simProLockedMsg'));
+    showDialog({
+      title: t(lang, 'simProLockedTitle'),
+      message: t(lang, 'simProLockedMsg'),
+      icon: 'lock-closed',
+      tone: 'warning',
+      actions: [{ label: okLabel, variant: 'warning' }],
+    });
   };
 
   const handleFrequency = (next: PurchaseFrequency) => {
@@ -120,12 +129,24 @@ export default function SimulatorScreen() {
 
   const handleLockImpulse = async () => {
     if (numericPrice <= 0) {
-      Alert.alert('PausePay', t(lang, 'simMissingPrice'));
+      showDialog({
+        title: 'PausePay',
+        message: t(lang, 'simMissingPrice'),
+        icon: 'alert-circle-outline',
+        tone: 'warning',
+        actions: [{ label: okLabel, variant: 'primary' }],
+      });
       return;
     }
     if (!isPro && vaultStats.activeCount >= FREE_LIMITS.maxActiveQuarantine) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
-      Alert.alert(t(lang, 'simLimitTitle'), t(lang, 'simLimitMsg'));
+      showDialog({
+        title: t(lang, 'simLimitTitle'),
+        message: t(lang, 'simLimitMsg'),
+        icon: 'lock-closed',
+        tone: 'warning',
+        actions: [{ label: okLabel, variant: 'warning' }],
+      });
       return;
     }
 
@@ -157,16 +178,27 @@ export default function SimulatorScreen() {
     setName('');
 
     if (permissionDenied) {
-      Alert.alert(t(lang, 'notifDeniedTitle'), t(lang, 'notifDeniedMsg'), [
-        { text: t(lang, 'notifContinue'), style: 'cancel', onPress: () => router.push('/(tabs)/vault') },
-        {
-          text: t(lang, 'notifOpenSettings'),
-          onPress: () => {
-            openSystemSettings();
-            router.push('/(tabs)/vault');
+      showDialog({
+        title: t(lang, 'notifDeniedTitle'),
+        message: t(lang, 'notifDeniedMsg'),
+        icon: 'notifications-off-outline',
+        tone: 'warning',
+        actions: [
+          {
+            label: t(lang, 'notifOpenSettings'),
+            variant: 'primary',
+            onPress: () => {
+              openSystemSettings();
+              router.push('/(tabs)/vault');
+            },
           },
-        },
-      ]);
+          {
+            label: t(lang, 'notifContinue'),
+            variant: 'secondary',
+            onPress: () => router.push('/(tabs)/vault'),
+          },
+        ],
+      });
     } else {
       router.push('/(tabs)/vault');
     }

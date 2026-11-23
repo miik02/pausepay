@@ -1,7 +1,6 @@
 import React, { ComponentRef, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -44,6 +43,7 @@ export function ShareStoryModal({
   const cardRef = useRef<ComponentRef<typeof View>>(null);
   const [styleId, setStyleId] = useState<StoryStyleId>('obsidian');
   const [busy, setBusy] = useState(false);
+  const [inlineNotice, setInlineNotice] = useState<string | null>(null);
 
   if (!payload) return null;
 
@@ -58,10 +58,11 @@ export function ShareStoryModal({
   const handleSelectStyle = (id: StoryStyleId, proOnly: boolean) => {
     if (proOnly && !isPro) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
-      Alert.alert(t(lang, 'simProLockedTitle'), t(lang, 'simProLockedMsg'));
+      setInlineNotice(t(lang, 'simProLockedMsg'));
       return;
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setInlineNotice(null);
     setStyleId(id);
   };
 
@@ -71,7 +72,7 @@ export function ShareStoryModal({
     try {
       const canShare = await Sharing.isAvailableAsync();
       if (!canShare) {
-        Alert.alert('PausePay', t(lang, 'shareError'));
+        setInlineNotice(t(lang, 'shareError'));
         return;
       }
 
@@ -88,7 +89,7 @@ export function ShareStoryModal({
         UTI: 'public.png',
       });
     } catch {
-      Alert.alert('PausePay', t(lang, 'shareError'));
+      setInlineNotice(t(lang, 'shareError'));
     } finally {
       setBusy(false);
     }
@@ -154,6 +155,13 @@ export function ShareStoryModal({
 
             <Text style={styles.privacy}>{t(lang, 'sharePrivacyNote')}</Text>
           </ScrollView>
+
+          {inlineNotice && (
+            <Pressable style={styles.inlineNotice} onPress={() => setInlineNotice(null)}>
+              <Ionicons name="lock-closed" size={14} color={theme.warning} />
+              <Text style={styles.inlineNoticeText}>{inlineNotice}</Text>
+            </Pressable>
+          )}
 
           <Pressable
             style={[styles.shareBtn, busy && styles.shareBtnDisabled]}
@@ -264,6 +272,24 @@ const styles = StyleSheet.create({
     color: theme.textMuted,
     fontSize: 11,
     textAlign: 'center',
+  },
+  inlineNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: theme.warningDim,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.4)',
+    borderRadius: RADIUS.md,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  inlineNoticeText: {
+    flex: 1,
+    color: theme.warning,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
   },
   shareBtn: {
     flexDirection: 'row',

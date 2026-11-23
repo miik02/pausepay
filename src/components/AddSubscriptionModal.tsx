@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -57,6 +56,7 @@ export function AddSubscriptionModal({
   const [category, setCategory] = useState<ImpulseCategory>('entertainment');
   const [daysAhead, setDaysAhead] = useState(14);
   const [saving, setSaving] = useState(false);
+  const [inlineNotice, setInlineNotice] = useState<string | null>(null);
 
   const numericPrice = useMemo(() => {
     const clean = priceText.replace(',', '.').replace(/[^0-9.]/g, '');
@@ -94,9 +94,11 @@ export function AddSubscriptionModal({
   const handleSave = async () => {
     if (saving) return;
     if (numericPrice <= 0) {
-      Alert.alert('PausePay', t(lang, 'simMissingPrice'));
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+      setInlineNotice(t(lang, 'simMissingPrice'));
       return;
     }
+    setInlineNotice(null);
 
     setSaving(true);
     try {
@@ -305,6 +307,13 @@ export function AddSubscriptionModal({
               })}
             </ScrollView>
           </ScrollView>
+
+          {inlineNotice && (
+            <View style={styles.inlineNotice}>
+              <Ionicons name="alert-circle" size={15} color={theme.warning} />
+              <Text style={styles.inlineNoticeText}>{inlineNotice}</Text>
+            </View>
+          )}
 
           <Pressable
             style={[styles.saveBtn, saving && { opacity: 0.7 }]}
@@ -549,6 +558,23 @@ const styles = StyleSheet.create({
   },
   catChipTextActive: {
     color: theme.accent,
+  },
+  inlineNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: theme.warningDim,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.4)',
+    borderRadius: RADIUS.md,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  inlineNoticeText: {
+    flex: 1,
+    color: theme.warning,
+    fontSize: 12,
+    fontWeight: '700',
   },
   saveBtn: {
     flexDirection: 'row',

@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { OnboardingFlow } from '../components/OnboardingFlow';
 import { AppProvider, useApp } from '../context/AppContext';
+import { DialogProvider } from '../context/DialogContext';
 import { theme } from '../theme/tokens';
 import { configureNotifications } from '../utils/notifications';
 
@@ -39,8 +40,10 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <AppProvider>
-        <StatusBar style="light" />
-        <RootNavigator />
+        <DialogProvider>
+          <StatusBar style="light" />
+          <RootNavigator />
+        </DialogProvider>
       </AppProvider>
     </SafeAreaProvider>
   );

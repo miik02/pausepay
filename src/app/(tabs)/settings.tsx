@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,12 +14,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { CURRENCIES } from '../../constants/etfs';
 import { t } from '../../constants/i18n';
 import { useApp } from '../../context/AppContext';
+import { useDialog } from '../../context/DialogContext';
 import { RADIUS, SPACING, TABULAR_NUMS, theme } from '../../theme/tokens';
 import { CurrencyCode, LanguageCode } from '../../types';
 import { exportBackupFile, pickAndParseBackup } from '../../utils/backup';
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
+  const { showDialog } = useDialog();
   const { profile, items, subscriptions, isPro, setDevPro, updateProfile, replaceAllData } = useApp();
   const lang = profile.language;
 
@@ -34,6 +35,8 @@ export default function SettingsScreen() {
     setCommute(String(profile.commuteWeeklyHours));
   }, [profile.monthlyNetIncome, profile.weeklyHours, profile.commuteWeeklyHours]);
 
+  const okLabel = lang === 'es' ? 'Entendido' : 'Got it';
+
   const handleSave = async () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     await updateProfile({
@@ -41,14 +44,25 @@ export default function SettingsScreen() {
       weeklyHours: Math.max(1, Number(hours.replace(',', '.')) || profile.weeklyHours),
       commuteWeeklyHours: Math.max(0, Number(commute.replace(',', '.')) || 0),
     });
-    Alert.alert('PausePay', t(lang, 'settingsSaved'));
+    showDialog({
+      title: t(lang, 'settingsSaved'),
+      icon: 'checkmark-circle',
+      tone: 'accent',
+      actions: [{ label: okLabel, variant: 'primary' }],
+    });
   };
 
   const handleExport = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     const res = await exportBackupFile(profile, items, subscriptions);
     if (!res.ok) {
-      Alert.alert('PausePay', t(lang, 'backupExportErr'));
+      showDialog({
+        title: 'PausePay',
+        message: t(lang, 'backupExportErr'),
+        icon: 'alert-circle-outline',
+        tone: 'danger',
+        actions: [{ label: okLabel, variant: 'secondary' }],
+      });
     }
   };
 
@@ -59,26 +73,41 @@ export default function SettingsScreen() {
 
     if (res.status === 'invalid') {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
-      Alert.alert(t(lang, 'backupInvalidTitle'), t(lang, 'backupInvalidMsg'));
+      showDialog({
+        title: t(lang, 'backupInvalidTitle'),
+        message: t(lang, 'backupInvalidMsg'),
+        icon: 'alert-circle-outline',
+        tone: 'danger',
+        actions: [{ label: okLabel, variant: 'secondary' }],
+      });
       return;
     }
 
     const totalEntries = res.data.items.length + (res.data.subscriptions?.length ?? 0);
-    Alert.alert(
-      t(lang, 'backupConfirmTitle'),
-      `${t(lang, 'backupConfirmMsg')} ${totalEntries}`,
-      [
-        { text: t(lang, 'vaultCancel'), style: 'cancel' },
+    showDialog({
+      title: t(lang, 'backupConfirmTitle'),
+      message: `${t(lang, 'backupConfirmMsg')} ${totalEntries}`,
+      icon: 'cloud-upload-outline',
+      tone: 'warning',
+      actions: [
         {
-          text: t(lang, 'backupConfirmAction'),
+          label: t(lang, 'backupConfirmAction'),
+          variant: 'primary',
           onPress: async () => {
             await replaceAllData(res.data.profile, res.data.items, res.data.subscriptions ?? []);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-            Alert.alert(t(lang, 'backupSuccessTitle'), t(lang, 'backupSuccessMsg'));
+            showDialog({
+              title: t(lang, 'backupSuccessTitle'),
+              message: t(lang, 'backupSuccessMsg'),
+              icon: 'checkmark-circle',
+              tone: 'accent',
+              actions: [{ label: okLabel, variant: 'primary' }],
+            });
           },
         },
-      ]
-    );
+        { label: t(lang, 'vaultCancel'), variant: 'secondary' },
+      ],
+    });
   };
 
   return (
