@@ -6,6 +6,7 @@ export type QuarantineHours = 24 | 48 | 72 | 168;
 export type ImpulseStatus = 'quarantine' | 'resisted' | 'bought';
 export type BillingCycle = 'monthly' | 'yearly' | 'trial';
 export type SubscriptionStatus = 'active' | 'cancelled';
+export type TutorialTabKey = 'simulate' | 'vault' | 'subs';
 
 export type ImpulseCategory =
   | 'tech'
@@ -42,6 +43,9 @@ export interface ImpulseItem {
   unlockAt: number;
   resolvedAt?: number;
   notificationId?: string;
+  productUrl?: string;
+  imageUri?: string;
+  estimatedUses?: number;
 }
 
 export interface SubscriptionItem {
@@ -56,6 +60,15 @@ export interface SubscriptionItem {
   cancelledAt?: number;
   notificationId?: string;
 }
+
+export interface FreedomGoal {
+  id: string;
+  name: string;
+  targetAmount: number;
+  icon: string;
+}
+
+export type TutorialSeenMap = Partial<Record<TutorialTabKey, boolean>>;
 
 export interface GrowthPoint {
   year: number;
@@ -84,6 +97,20 @@ export interface SubStats {
   cancelledCount: number;
 }
 
+export interface CleanDayCell {
+  key: string;
+  clean: boolean;
+  isToday: boolean;
+}
+
+export interface CleanStreakStats {
+  currentStreak: number;
+  bestStreak: number;
+  isTodayClean: boolean;
+  totalCleanDays: number;
+  last28Days: CleanDayCell[];
+}
+
 export interface AppBackupPayload {
   version: number;
   app: 'PausePay';
@@ -91,4 +118,7 @@ export interface AppBackupPayload {
   profile: UserProfile;
   items: ImpulseItem[];
   subscriptions?: SubscriptionItem[];
+  goals?: FreedomGoal[];
+  activeGoalId?: string;
+  cleanDays?: string[];
 }

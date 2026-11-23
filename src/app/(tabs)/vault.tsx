@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -8,8 +9,12 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
+import { CleanDaysCard } from '../../components/CleanDaysCard';
+import { ContextualTipModal } from '../../components/ContextualTipModal';
+import { FreedomGoalCard } from '../../components/FreedomGoalCard';
 import { ResolveImpulseModal } from '../../components/ResolveImpulseModal';
 import { ShareStoryModal } from '../../components/ShareStoryModal';
 import { StoryPayload } from '../../components/StoryCard';
@@ -19,7 +24,7 @@ import { useApp } from '../../context/AppContext';
 import { useDialog } from '../../context/DialogContext';
 import { RADIUS, SPACING, TABULAR_NUMS, theme } from '../../theme/tokens';
 import { ImpulseCategory, ImpulseItem, ImpulseStatus } from '../../types';
-import { formatCurrency } from '../../utils/finance';
+import { calculateCostPerUse, formatCurrency } from '../../utils/finance';
 
 function formatCountdown(remainingMs: number, lang: 'es' | 'en'): string {
   if (remainingMs <= 0) return t(lang, 'vaultReady');
@@ -36,12 +41,29 @@ function formatCountdown(remainingMs: number, lang: 'es' | 'en'): string {
 export default function VaultScreen() {
   const insets = useSafeAreaInsets();
   const { showDialog } = useDialog();
-  const { profile, items, vaultStats, isPro, resolveImpulse, deleteImpulse } = useApp();
+  const {
+    profile,
+    items,
+    goals,
+    activeGoal,
+    cleanStats,
+    vaultStats,
+    tutorialsSeen,
+    isPro,
+    resolveImpulse,
+    deleteImpulse,
+    saveActiveGoal,
+    addGoal,
+    selectGoal,
+    toggleTodayClean,
+    markTutorialSeen,
+  } = useApp();
   const lang = profile.language;
 
   const [tab, setTab] = useState<ImpulseStatus>('quarantine');
   const [selectedItem, setSelectedItem] = useState<ImpulseItem | null>(null);
   const [sharePayload, setSharePayload] = useState<StoryPayload | null>(null);
+  const [showTip, setShowTip] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [victoryInfo, setVictoryInfo] = useState<{
     item: ImpulseItem;
@@ -51,6 +73,14 @@ export default function VaultScreen() {
 
   const bannerAnim = useRef(new Animated.Value(0)).current;
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (tutorialsSeen.vault) return;
+      const timer = setTimeout(() => setShowTip(true), 350);
+      return () => clearTimeout(timer);
+    }, [tutorialsSeen.vault])
+  );
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 15000);
@@ -243,6 +273,24 @@ export default function VaultScreen() {
           </View>
         </View>
 
+        <FreedomGoalCard
+          goals={goals}
+          activeGoal={activeGoal}
+          savedAmount={vaultStats.totalResisted}
+          currency={profile.currency}
+          lang={lang}
+          isPro={isPro}
+          onSaveGoal={saveActiveGoal}
+          onAddGoal={addGoal}
+          onSelectGoal={selectGoal}
+        />
+
+        <CleanDaysCard
+          stats={cleanStats}
+          lang={lang}
+          onToggleToday={toggleTodayClean}
+        />
+
         <View style={styles.segmentBar}>
           {(
             [
@@ -297,6 +345,7 @@ export default function VaultScreen() {
             const remainingMs = Math.max(0, item.unlockAt - now);
             const elapsedRatio = Math.min(1, Math.max(0, (now - item.createdAt) / totalDuration));
             const isReady = remainingMs <= 0;
+            const cpu = calculateCostPerUse(item.price, item.estimatedUses);
 
             return (
               <Pressable
@@ -319,27 +368,32 @@ export default function VaultScreen() {
               >
                 <View style={styles.itemHeader}>
                   <View style={styles.itemTitleWrap}>
-                    <View style={styles.catIconBox}>
-                      <Ionicons
-                        name={cat.icon as React.ComponentProps<typeof Ionicons>['name']}
-                        size={16}
-                        color={
-                          item.status === 'resisted'
-                            ? theme.accent
-                            : item.status === 'bought'
-                              ? theme.danger
-                              : isReady
-                                ? theme.accent
-                                : theme.warning
-                        }
-                      />
-                    </View>
+                    {item.imageUri ? (
+                      <Image source={{ uri: item.imageUri }} style={styles.itemThumb} />
+                    ) : (
+                      <View style={styles.catIconBox}>
+                        <Ionicons
+                          name={cat.icon as React.ComponentProps<typeof Ionicons>['name']}
+                          size={16}
+                          color={
+                            item.status === 'resisted'
+                              ? theme.accent
+                              : item.status === 'bought'
+                                ? theme.danger
+                                : isReady
+                                  ? theme.accent
+                                  : theme.warning
+                          }
+                        />
+                      </View>
+                    )}
                     <View style={{ flex: 1 }}>
                       <Text style={styles.itemName} numberOfLines={1}>
                         {item.name}
                       </Text>
-                      <Text style={styles.itemMeta}>
+                      <Text style={styles.itemMeta} numberOfLines={1}>
                         {item.hoursCost.toFixed(1)} h · {formatCurrency(item.futureValue, profile.currency, 0)} ({item.horizonYears}{t(lang, 'simYearsSuffix')[0]})
+                        {cpu !== null ? ` · ${formatCurrency(cpu, profile.currency, 0)}${t(lang, 'wishPerUseUnit')}` : ''}
                       </Text>
                     </View>
                   </View>
@@ -466,6 +520,18 @@ export default function VaultScreen() {
         lang={lang}
         isPro={isPro}
         onClose={() => setSharePayload(null)}
+      />
+
+      <ContextualTipModal
+        visible={showTip}
+        title={t(lang, 'tipVaultTitle')}
+        body={t(lang, 'tipVaultBody')}
+        actionLabel={t(lang, 'tipGotIt')}
+        arrowLeftPercent="37%"
+        onDismiss={() => {
+          setShowTip(false);
+          markTutorialSeen('vault');
+        }}
       />
     </View>
   );
@@ -669,9 +735,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  itemThumb: {
+    width: 38,
+    height: 38,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: theme.borderStrong,
+  },
   catIconBox: {
-    width: 36,
-    height: 36,
+    width: 38,
+    height: 38,
     borderRadius: RADIUS.md,
     backgroundColor: theme.bg,
     borderWidth: 1,

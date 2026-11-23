@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -7,9 +7,11 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { AddSubscriptionModal } from '../../components/AddSubscriptionModal';
+import { ContextualTipModal } from '../../components/ContextualTipModal';
 import { SubBurnBar } from '../../components/SubBurnBar';
 import { FREE_LIMITS } from '../../constants/etfs';
 import { CATEGORY_META, t } from '../../constants/i18n';
@@ -32,6 +34,8 @@ export default function SubsScreen() {
     subscriptions,
     hourlyRate,
     subStats,
+    tutorialsSeen,
+    markTutorialSeen,
     isPro,
     addSubscription,
     cancelSubscriptionAndRescue,
@@ -40,6 +44,15 @@ export default function SubsScreen() {
   const lang = profile.language;
 
   const [modalVisible, setModalVisible] = useState(false);
+  const [showTip, setShowTip] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (tutorialsSeen.subs) return;
+      const timer = setTimeout(() => setShowTip(true), 350);
+      return () => clearTimeout(timer);
+    }, [tutorialsSeen.subs])
+  );
 
   const activeSubs = useMemo(
     () =>
@@ -336,6 +349,18 @@ export default function SubsScreen() {
         hourlyRate={hourlyRate}
         onClose={() => setModalVisible(false)}
         onSubmit={handleAddSubmit}
+      />
+
+      <ContextualTipModal
+        visible={showTip}
+        title={t(lang, 'tipSubsTitle')}
+        body={t(lang, 'tipSubsBody')}
+        actionLabel={t(lang, 'tipGotIt')}
+        arrowLeftPercent="62%"
+        onDismiss={() => {
+          setShowTip(false);
+          markTutorialSeen('subs');
+        }}
       />
     </View>
   );

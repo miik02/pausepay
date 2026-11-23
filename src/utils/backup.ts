@@ -1,13 +1,22 @@
 import { File, Paths } from 'expo-file-system';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Sharing from 'expo-sharing';
-import { AppBackupPayload, ImpulseItem, SubscriptionItem, UserProfile } from '../types';
-import { parseBackup, serializeBackup } from './storage';
+import {
+  AppBackupPayload,
+  FreedomGoal,
+  ImpulseItem,
+  SubscriptionItem,
+  UserProfile,
+} from '../types';
+import { DEFAULT_GOALS, parseBackup, serializeBackup } from './storage';
 
 export async function exportBackupFile(
   profile: UserProfile,
   items: ImpulseItem[],
-  subscriptions: SubscriptionItem[] = []
+  subscriptions: SubscriptionItem[] = [],
+  goals: FreedomGoal[] = DEFAULT_GOALS,
+  activeGoalId: string = DEFAULT_GOALS[0].id,
+  cleanDays: string[] = []
 ): Promise<{ ok: boolean }> {
   try {
     const canShare = await Sharing.isAvailableAsync();
@@ -21,7 +30,7 @@ export async function exportBackupFile(
       file.delete();
     }
     file.create();
-    file.write(serializeBackup(profile, items, subscriptions));
+    file.write(serializeBackup(profile, items, subscriptions, goals, activeGoalId, cleanDays));
 
     await Sharing.shareAsync(file.uri, {
       mimeType: 'application/json',

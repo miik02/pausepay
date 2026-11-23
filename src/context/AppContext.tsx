@@ -1,23 +1,42 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { t } from '../constants/i18n';
-import { ImpulseItem, SubscriptionItem, SubStats, UserProfile, VaultStats } from '../types';
 import {
+  CleanStreakStats,
+  FreedomGoal,
+  ImpulseItem,
+  SubscriptionItem,
+  SubStats,
+  TutorialSeenMap,
+  TutorialTabKey,
+  UserProfile,
+  VaultStats,
+} from '../types';
+import {
+  calculateCleanStreak,
   calculateFutureValue,
   calculateHourlyRate,
   calculateLifeCost,
   calculateSubscriptionStats,
   calculateVaultStats,
   getAnnualSubscriptionCost,
+  getLocalDateKey,
 } from '../utils/finance';
 import { cancelQuarantineNotification } from '../utils/notifications';
 import {
+  DEFAULT_GOALS,
   DEFAULT_PROFILE,
+  loadCleanDays,
+  loadGoals,
   loadItems,
   loadProfile,
   loadSubscriptions,
+  loadTutorialsSeen,
+  saveCleanDays,
+  saveGoals,
   saveItems,
   saveProfile,
   saveSubscriptions,
+  saveTutorialsSeen,
 } from '../utils/storage';
 
 interface AppContextValue {
@@ -25,6 +44,11 @@ interface AppContextValue {
   profile: UserProfile;
   items: ImpulseItem[];
   subscriptions: SubscriptionItem[];
+  goals: FreedomGoal[];
+  activeGoal: FreedomGoal;
+  cleanDays: string[];
+  cleanStats: CleanStreakStats;
+  tutorialsSeen: TutorialSeenMap;
   hourlyRate: number;
   vaultStats: VaultStats;
   subStats: SubStats;
@@ -37,10 +61,19 @@ interface AppContextValue {
   addSubscription: (sub: SubscriptionItem) => Promise<void>;
   cancelSubscriptionAndRescue: (id: string) => Promise<void>;
   deleteSubscription: (id: string) => Promise<void>;
+  saveActiveGoal: (goal: FreedomGoal) => Promise<void>;
+  addGoal: (goal: FreedomGoal) => Promise<void>;
+  selectGoal: (goalId: string) => Promise<void>;
+  toggleTodayClean: () => Promise<boolean>;
+  markTutorialSeen: (tab: TutorialTabKey) => Promise<void>;
+  resetTutorials: () => Promise<void>;
   replaceAllData: (
     profile: UserProfile,
     items: ImpulseItem[],
-    subscriptions?: SubscriptionItem[]
+    subscriptions?: SubscriptionItem[],
+    goals?: FreedomGoal[],
+    activeGoalId?: string,
+    cleanDays?: string[]
   ) => Promise<void>;
 }
 
@@ -51,20 +84,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<UserProfile>(DEFAULT_PROFILE);
   const [items, setItems] = useState<ImpulseItem[]>([]);
   const [subscriptions, setSubscriptions] = useState<SubscriptionItem[]>([]);
+  const [goals, setGoals] = useState<FreedomGoal[]>(DEFAULT_GOALS);
+  const [activeGoalId, setActiveGoalId] = useState<string>(DEFAULT_GOALS[0].id);
+  const [cleanDays, setCleanDays] = useState<string[]>([]);
+  const [tutorialsSeen, setTutorialsSeen] = useState<TutorialSeenMap>({});
   const [isPro, setIsPro] = useState(false);
 
   useEffect(() => {
     let active = true;
     (async () => {
-      const [loadedProfile, loadedItems, loadedSubs] = await Promise.all([
-        loadProfile(),
-        loadItems(),
-        loadSubscriptions(),
-      ]);
+      const [loadedProfile, loadedItems, loadedSubs, loadedGoals, loadedClean, loadedTuts] =
+        await Promise.all([
+          loadProfile(),
+          loadItems(),
+          loadSubscriptions(),
+          loadGoals(),
+          loadCleanDays(),
+          loadTutorialsSeen(),
+        ]);
       if (!active) return;
       setProfile(loadedProfile);
       setItems(loadedItems);
       setSubscriptions(loadedSubs);
+      setGoals(loadedGoals.goals);
+      setActiveGoalId(loadedGoals.activeGoalId);
+      setCleanDays(loadedClean);
+      setTutorialsSeen(loadedTuts);
       setIsReady(true);
     })();
     return () => {
@@ -90,6 +135,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const subStats = useMemo(
     () => calculateSubscriptionStats(subscriptions, hourlyRate),
     [subscriptions, hourlyRate]
+  );
+
+  const cleanStats = useMemo(() => calculateCleanStreak(cleanDays), [cleanDays]);
+
+  const activeGoal = useMemo(
+    () => goals.find((g) => g.id === activeGoalId) ?? goals[0] ?? DEFAULT_GOALS[0],
+    [goals, activeGoalId]
   );
 
   const updateProfile = useCallback(async (patch: Partial<UserProfile>) => {
@@ -213,19 +265,96 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const saveActiveGoal = useCallback(
+    async (updated: FreedomGoal) => {
+      setGoals((prev) => {
+        const exists = prev.some((g) => g.id === updated.id);
+        const next = exists
+          ? prev.map((g) => (g.id === updated.id ? updated : g))
+          : [...prev, updated];
+        saveGoals(next, updated.id).catch(() => {});
+        return next;
+      });
+      setActiveGoalId(updated.id);
+    },
+    []
+  );
+
+  const addGoal = useCallback(async (goal: FreedomGoal) => {
+    setGoals((prev) => {
+      const next = [...prev, goal];
+      saveGoals(next, goal.id).catch(() => {});
+      return next;
+    });
+    setActiveGoalId(goal.id);
+  }, []);
+
+  const selectGoal = useCallback(
+    async (goalId: string) => {
+      setActiveGoalId(goalId);
+      setGoals((prev) => {
+        saveGoals(prev, goalId).catch(() => {});
+        return prev;
+      });
+    },
+    []
+  );
+
+  const toggleTodayClean = useCallback(async (): Promise<boolean> => {
+    const todayKey = getLocalDateKey();
+    let nowClean = false;
+    setCleanDays((prev) => {
+      const exists = prev.includes(todayKey);
+      nowClean = !exists;
+      const next = exists ? prev.filter((d) => d !== todayKey) : [...prev, todayKey];
+      saveCleanDays(next).catch(() => {});
+      return next;
+    });
+    return nowClean;
+  }, []);
+
+  const markTutorialSeen = useCallback(async (tab: TutorialTabKey) => {
+    setTutorialsSeen((prev) => {
+      if (prev[tab]) return prev;
+      const next = { ...prev, [tab]: true };
+      saveTutorialsSeen(next).catch(() => {});
+      return next;
+    });
+  }, []);
+
+  const resetTutorials = useCallback(async () => {
+    setTutorialsSeen({});
+    await saveTutorialsSeen({});
+  }, []);
+
   const replaceAllData = useCallback(
     async (
       newProfile: UserProfile,
       newItems: ImpulseItem[],
-      newSubscriptions: SubscriptionItem[] = []
+      newSubscriptions: SubscriptionItem[] = [],
+      newGoals: FreedomGoal[] = DEFAULT_GOALS,
+      newActiveGoalId?: string,
+      newCleanDays: string[] = []
     ) => {
+      const safeGoals = newGoals.length > 0 ? newGoals : DEFAULT_GOALS;
+      const safeActive =
+        newActiveGoalId && safeGoals.some((g) => g.id === newActiveGoalId)
+          ? newActiveGoalId
+          : safeGoals[0].id;
+
       setProfile(newProfile);
       setItems(newItems);
       setSubscriptions(newSubscriptions);
+      setGoals(safeGoals);
+      setActiveGoalId(safeActive);
+      setCleanDays(newCleanDays);
+
       await Promise.all([
         saveProfile(newProfile),
         saveItems(newItems),
         saveSubscriptions(newSubscriptions),
+        saveGoals(safeGoals, safeActive),
+        saveCleanDays(newCleanDays),
       ]);
     },
     []
@@ -241,6 +370,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       profile,
       items,
       subscriptions,
+      goals,
+      activeGoal,
+      cleanDays,
+      cleanStats,
+      tutorialsSeen,
       hourlyRate,
       vaultStats,
       subStats,
@@ -253,6 +387,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addSubscription,
       cancelSubscriptionAndRescue,
       deleteSubscription,
+      saveActiveGoal,
+      addGoal,
+      selectGoal,
+      toggleTodayClean,
+      markTutorialSeen,
+      resetTutorials,
       replaceAllData,
     }),
     [
@@ -260,6 +400,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       profile,
       items,
       subscriptions,
+      goals,
+      activeGoal,
+      cleanDays,
+      cleanStats,
+      tutorialsSeen,
       hourlyRate,
       vaultStats,
       subStats,
@@ -272,6 +417,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addSubscription,
       cancelSubscriptionAndRescue,
       deleteSubscription,
+      saveActiveGoal,
+      addGoal,
+      selectGoal,
+      toggleTodayClean,
+      markTutorialSeen,
+      resetTutorials,
       replaceAllData,
     ]
   );

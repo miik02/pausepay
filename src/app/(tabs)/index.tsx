@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -10,9 +11,11 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
+import { ContextualTipModal } from '../../components/ContextualTipModal';
 import { GrowthChart } from '../../components/GrowthChart';
 import {
   CURRENCIES,
@@ -33,6 +36,7 @@ import {
   QuarantineHours,
 } from '../../types';
 import {
+  calculateCostPerUse,
   calculateFutureValue,
   calculateLifeCost,
   formatCurrency,
@@ -42,14 +46,24 @@ import { openSystemSettings, scheduleQuarantineNotification } from '../../utils/
 
 const CATEGORIES = Object.keys(CATEGORY_META) as ImpulseCategory[];
 const QUICK_AMOUNTS = [25, 60, 120, 300, 600];
+const USE_OPTIONS = [1, 5, 15, 30, 100];
 
 export default function SimulatorScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { showDialog } = useDialog();
-  const { profile, hourlyRate, vaultStats, isPro, addImpulse } = useApp();
+  const {
+    profile,
+    hourlyRate,
+    vaultStats,
+    isPro,
+    tutorialsSeen,
+    markTutorialSeen,
+    addImpulse,
+  } = useApp();
   const lang = profile.language;
   const currencySymbol = CURRENCIES[profile.currency].symbol;
+  const okLabel = lang === 'es' ? 'Entendido' : 'Got it';
 
   const [priceText, setPriceText] = useState('120');
   const [name, setName] = useState('');
@@ -59,6 +73,21 @@ export default function SimulatorScreen() {
   const [customRate, setCustomRate] = useState(profile.customRate || 7);
   const [horizonYears, setHorizonYears] = useState<number>(10);
   const [quarantineHours, setQuarantineHours] = useState<QuarantineHours>(48);
+
+  // Wishlist plegable (cerrada por defecto para cero fricción)
+  const [wishExpanded, setWishExpanded] = useState(false);
+  const [productUrl, setProductUrl] = useState('');
+  const [imageUri, setImageUri] = useState<string | undefined>(undefined);
+  const [estimatedUses, setEstimatedUses] = useState<number | undefined>(undefined);
+  const [showTip, setShowTip] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (tutorialsSeen.simulate) return;
+      const timer = setTimeout(() => setShowTip(true), 350);
+      return () => clearTimeout(timer);
+    }, [tutorialsSeen.simulate])
+  );
 
   const numericPrice = useMemo(() => {
     const clean = priceText.replace(',', '.').replace(/[^0-9.]/g, '');
@@ -82,12 +111,17 @@ export default function SimulatorScreen() {
     [numericPrice, activeRate, horizonYears, frequency]
   );
 
+  const costPerUse = useMemo(
+    () => calculateCostPerUse(numericPrice, estimatedUses),
+    [numericPrice, estimatedUses]
+  );
+
   const growthPoints = useMemo(
     () => generateGrowthSeries(Math.max(numericPrice, 1), activeRate, horizonYears, frequency),
     [numericPrice, activeRate, horizonYears, frequency]
   );
 
-  const okLabel = lang === 'es' ? 'Entendido' : 'Got it';
+  const hasWishExtras = Boolean(productUrl.trim() || imageUri || estimatedUses);
 
   const promptPro = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
@@ -125,6 +159,35 @@ export default function SimulatorScreen() {
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setHorizonYears(yrs);
+  };
+
+  const handlePickPhoto = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      showDialog({
+        title: t(lang, 'wishPhotoDeniedTitle'),
+        message: t(lang, 'wishPhotoDeniedMsg'),
+        icon: 'images-outline',
+        tone: 'warning',
+        actions: [
+          { label: t(lang, 'notifOpenSettings'), variant: 'primary', onPress: openSystemSettings },
+          { label: t(lang, 'vaultCancel'), variant: 'secondary' },
+        ],
+      });
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      setImageUri(result.assets[0].uri);
+    }
   };
 
   const handleLockImpulse = async () => {
@@ -166,6 +229,9 @@ export default function SimulatorScreen() {
       status: 'quarantine',
       createdAt: now,
       unlockAt: now + quarantineHours * 3600 * 1000,
+      productUrl: productUrl.trim() || undefined,
+      imageUri,
+      estimatedUses,
     };
 
     const { notificationId, permissionDenied } = await scheduleQuarantineNotification(
@@ -176,6 +242,10 @@ export default function SimulatorScreen() {
 
     await addImpulse({ ...baseItem, notificationId });
     setName('');
+    setProductUrl('');
+    setImageUri(undefined);
+    setEstimatedUses(undefined);
+    setWishExpanded(false);
 
     if (permissionDenied) {
       showDialog({
@@ -420,6 +490,97 @@ export default function SimulatorScreen() {
           })}
         </ScrollView>
 
+        <View style={styles.wishBox}>
+          <Pressable
+            style={styles.wishToggle}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+              setWishExpanded((v) => !v);
+            }}
+          >
+            <View style={styles.inlineIcon}>
+              <Ionicons
+                name={wishExpanded ? 'chevron-up' : 'add-circle-outline'}
+                size={16}
+                color={hasWishExtras ? theme.accent : theme.textSecondary}
+              />
+              <Text style={[styles.wishToggleText, hasWishExtras && { color: theme.accent }]}>
+                {wishExpanded ? t(lang, 'wishToggleOpen') : t(lang, 'wishToggleClosed')}
+              </Text>
+            </View>
+            {hasWishExtras && !wishExpanded && (
+              <View style={styles.wishDot} />
+            )}
+          </Pressable>
+
+          {wishExpanded && (
+            <View style={styles.wishBody}>
+              <TextInput
+                style={styles.nameInput}
+                value={productUrl}
+                onChangeText={setProductUrl}
+                placeholder={t(lang, 'wishUrlPlaceholder')}
+                placeholderTextColor={theme.textMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+              />
+
+              <View style={styles.photoRow}>
+                <Pressable style={styles.photoBtn} onPress={handlePickPhoto}>
+                  <Ionicons name="image-outline" size={16} color={theme.textPrimary} />
+                  <Text style={styles.photoBtnText}>
+                    {imageUri ? t(lang, 'wishPhotoChange') : t(lang, 'wishPhotoPick')}
+                  </Text>
+                </Pressable>
+
+                {imageUri && (
+                  <View style={styles.thumbWrap}>
+                    <Image source={{ uri: imageUri }} style={styles.thumb} />
+                    <Pressable
+                      style={styles.thumbRemove}
+                      onPress={() => setImageUri(undefined)}
+                      hitSlop={8}
+                    >
+                      <Ionicons name="close" size={12} color="#FAFAFA" />
+                    </Pressable>
+                  </View>
+                )}
+              </View>
+
+              <Text style={styles.wishLabel}>{t(lang, 'wishUsesLabel')}</Text>
+              <View style={styles.horizonRow}>
+                {USE_OPTIONS.map((uses) => {
+                  const active = estimatedUses === uses;
+                  return (
+                    <Pressable
+                      key={uses}
+                      style={[styles.usesBtn, active && styles.chipActive]}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                        setEstimatedUses(active ? undefined : uses);
+                      }}
+                    >
+                      <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                        {uses}x
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              {costPerUse !== null && (
+                <View style={styles.costPerUsePill}>
+                  <Text style={styles.costPerUseLbl}>{t(lang, 'wishCostPerUse')}</Text>
+                  <Text style={styles.costPerUseVal}>
+                    {formatCurrency(costPerUse, profile.currency, 1)} {t(lang, 'wishPerUseUnit')}
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
+        </View>
+
         <View style={styles.quarantineCard}>
           <Text style={styles.sectionLabelNoTop}>{t(lang, 'simQuarantineTitle')}</Text>
           <View style={styles.horizonRow}>
@@ -450,6 +611,18 @@ export default function SimulatorScreen() {
 
         <Text style={styles.disclaimer}>{t(lang, 'simDisclaimer')}</Text>
       </ScrollView>
+
+      <ContextualTipModal
+        visible={showTip}
+        title={t(lang, 'tipSimTitle')}
+        body={t(lang, 'tipSimBody')}
+        actionLabel={t(lang, 'tipGotIt')}
+        arrowLeftPercent="12%"
+        onDismiss={() => {
+          setShowTip(false);
+          markTutorialSeen('simulate');
+        }}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -578,7 +751,7 @@ const styles = StyleSheet.create({
   inlineIcon: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 6,
   },
   metricsGrid: {
     flexDirection: 'row',
@@ -700,6 +873,120 @@ const styles = StyleSheet.create({
     borderColor: theme.border,
     borderRadius: RADIUS.md,
     paddingVertical: 10,
+  },
+  wishBox: {
+    backgroundColor: theme.surface,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: theme.border,
+    overflow: 'hidden',
+  },
+  wishToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 13,
+  },
+  wishToggleText: {
+    color: theme.textSecondary,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  wishDot: {
+    width: 8,
+    height: 8,
+    borderRadius: RADIUS.full,
+    backgroundColor: theme.accent,
+  },
+  wishBody: {
+    paddingHorizontal: SPACING.md,
+    paddingBottom: SPACING.md,
+    gap: 10,
+    borderTopWidth: 1,
+    borderTopColor: theme.border,
+    paddingTop: 12,
+  },
+  photoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  photoBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    backgroundColor: theme.bg,
+    borderWidth: 1,
+    borderColor: theme.borderStrong,
+    borderRadius: RADIUS.md,
+    paddingVertical: 11,
+  },
+  photoBtnText: {
+    color: theme.textPrimary,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  thumbWrap: {
+    position: 'relative',
+  },
+  thumb: {
+    width: 44,
+    height: 44,
+    borderRadius: RADIUS.sm,
+    borderWidth: 1,
+    borderColor: theme.borderStrong,
+  },
+  thumbRemove: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    width: 18,
+    height: 18,
+    borderRadius: RADIUS.full,
+    backgroundColor: theme.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wishLabel: {
+    color: theme.textSecondary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  usesBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.bg,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: RADIUS.md,
+    paddingVertical: 8,
+  },
+  costPerUsePill: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: theme.warningDim,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.35)',
+    borderRadius: RADIUS.md,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  costPerUseLbl: {
+    color: theme.textSecondary,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  costPerUseVal: {
+    ...TABULAR_NUMS,
+    color: theme.warning,
+    fontSize: 14,
+    fontWeight: '800',
   },
   quarantineCard: {
     backgroundColor: theme.surface,

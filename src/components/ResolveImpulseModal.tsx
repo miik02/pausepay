@@ -1,12 +1,12 @@
 import React from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { CATEGORY_META, t } from '../constants/i18n';
 import { RADIUS, SPACING, TABULAR_NUMS, theme } from '../theme/tokens';
 import { CurrencyCode, ImpulseItem, LanguageCode } from '../types';
-import { formatCurrency } from '../utils/finance';
+import { calculateCostPerUse, formatCurrency } from '../utils/finance';
 import { HoldToBuyButton } from './HoldToBuyButton';
 
 interface ResolveImpulseModalProps {
@@ -33,10 +33,19 @@ export function ResolveImpulseModal({
 
   const isUnlocked = item.unlockAt <= Date.now();
   const cat = CATEGORY_META[item.category] || CATEGORY_META.other;
+  const costPerUse = calculateCostPerUse(item.price, item.estimatedUses);
 
   const handleResistPress = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     onResist(item);
+  };
+
+  const handleOpenLink = () => {
+    if (!item.productUrl) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    const trimmed = item.productUrl.trim();
+    const safeUrl = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    Linking.openURL(safeUrl).catch(() => {});
   };
 
   return (
@@ -80,20 +89,30 @@ export function ResolveImpulseModal({
             </Pressable>
           </View>
 
-          <View style={styles.titleBlock}>
-            <View style={styles.catRow}>
-              <Ionicons
-                name={cat.icon as React.ComponentProps<typeof Ionicons>['name']}
-                size={15}
-                color={theme.textSecondary}
-              />
-              <Text style={styles.catText}>{lang === 'es' ? cat.es : cat.en}</Text>
+          <View style={styles.titleRow}>
+            {item.imageUri && (
+              <Image source={{ uri: item.imageUri }} style={styles.thumb} />
+            )}
+            <View style={styles.titleBlock}>
+              <View style={styles.catRow}>
+                <Ionicons
+                  name={cat.icon as React.ComponentProps<typeof Ionicons>['name']}
+                  size={14}
+                  color={theme.textSecondary}
+                />
+                <Text style={styles.catText}>{lang === 'es' ? cat.es : cat.en}</Text>
+              </View>
+              <Text style={styles.itemName} numberOfLines={2}>
+                {item.name}
+              </Text>
+              <Text style={styles.itemPrice}>
+                {formatCurrency(item.price, currency, 0)}
+                {item.frequency === 'monthly' ? (lang === 'es' ? ' / mes' : ' / mo') : ''}
+                {costPerUse !== null
+                  ? `  ·  ${formatCurrency(costPerUse, currency, 1)} ${t(lang, 'wishPerUseUnit')}`
+                  : ''}
+              </Text>
             </View>
-            <Text style={styles.itemName}>{item.name}</Text>
-            <Text style={styles.itemPrice}>
-              {formatCurrency(item.price, currency, 0)}
-              {item.frequency === 'monthly' ? (lang === 'es' ? ' / mes' : ' / mo') : ''}
-            </Text>
           </View>
 
           <View style={styles.metricsRow}>
@@ -112,6 +131,13 @@ export function ResolveImpulseModal({
               </Text>
             </View>
           </View>
+
+          {Boolean(item.productUrl) && (
+            <Pressable style={styles.linkBtn} onPress={handleOpenLink}>
+              <Ionicons name="open-outline" size={15} color={theme.textPrimary} />
+              <Text style={styles.linkBtnText}>{t(lang, 'wishOpenLink')}</Text>
+            </Pressable>
+          )}
 
           <View style={styles.actions}>
             <Pressable style={styles.resistBtn} onPress={handleResistPress}>
@@ -153,7 +179,7 @@ const styles = StyleSheet.create({
     borderColor: theme.borderStrong,
     paddingHorizontal: SPACING.lg,
     paddingTop: 10,
-    gap: 16,
+    gap: 14,
   },
   handle: {
     alignSelf: 'center',
@@ -193,30 +219,43 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.border,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  thumb: {
+    width: 62,
+    height: 62,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: theme.borderStrong,
+  },
   titleBlock: {
-    gap: 4,
+    flex: 1,
+    gap: 3,
   },
   catRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
   },
   catText: {
     color: theme.textSecondary,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
   itemName: {
     color: theme.textPrimary,
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '800',
   },
   itemPrice: {
     ...TABULAR_NUMS,
     color: theme.textSecondary,
-    fontSize: 18,
+    fontSize: 14,
     fontWeight: '700',
   },
   metricsRow: {
@@ -242,9 +281,25 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '800',
   },
+  linkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: theme.bg,
+    borderWidth: 1,
+    borderColor: theme.borderStrong,
+    borderRadius: RADIUS.md,
+    paddingVertical: 11,
+  },
+  linkBtnText: {
+    color: theme.textPrimary,
+    fontSize: 13,
+    fontWeight: '700',
+  },
   actions: {
     gap: 10,
-    marginTop: 4,
+    marginTop: 2,
   },
   resistBtn: {
     flexDirection: 'row',

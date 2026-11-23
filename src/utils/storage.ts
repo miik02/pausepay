@@ -1,9 +1,20 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AppBackupPayload, ImpulseItem, SubscriptionItem, UserProfile } from '../types';
+import {
+  AppBackupPayload,
+  FreedomGoal,
+  ImpulseItem,
+  SubscriptionItem,
+  TutorialSeenMap,
+  UserProfile,
+} from '../types';
 
 const PROFILE_KEY = '@pausepay_profile_v1';
 const ITEMS_KEY = '@pausepay_items_v1';
 const SUBS_KEY = '@pausepay_subs_v1';
+const GOALS_KEY = '@pausepay_goals_v1';
+const ACTIVE_GOAL_KEY = '@pausepay_active_goal_v1';
+const CLEAN_DAYS_KEY = '@pausepay_clean_days_v1';
+const TUTORIAL_KEY = '@pausepay_tutorials_v1';
 
 export const DEFAULT_PROFILE: UserProfile = {
   monthlyNetIncome: 1800,
@@ -15,6 +26,15 @@ export const DEFAULT_PROFILE: UserProfile = {
   defaultEtf: 'sp500',
   customRate: 7,
 };
+
+export const DEFAULT_GOALS: FreedomGoal[] = [
+  {
+    id: 'goal-default',
+    name: 'Fondo de libertad',
+    targetAmount: 1000,
+    icon: 'airplane-outline',
+  },
+];
 
 export async function loadProfile(): Promise<UserProfile> {
   try {
@@ -60,18 +80,77 @@ export async function saveSubscriptions(subscriptions: SubscriptionItem[]): Prom
   await AsyncStorage.setItem(SUBS_KEY, JSON.stringify(subscriptions));
 }
 
+export async function loadGoals(): Promise<{ goals: FreedomGoal[]; activeGoalId: string }> {
+  try {
+    const [rawGoals, rawActive] = await Promise.all([
+      AsyncStorage.getItem(GOALS_KEY),
+      AsyncStorage.getItem(ACTIVE_GOAL_KEY),
+    ]);
+    const parsed = rawGoals ? JSON.parse(rawGoals) : null;
+    const goals: FreedomGoal[] =
+      Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_GOALS;
+    const activeGoalId =
+      rawActive && goals.some((g) => g.id === rawActive) ? rawActive : goals[0].id;
+    return { goals, activeGoalId };
+  } catch {
+    return { goals: DEFAULT_GOALS, activeGoalId: DEFAULT_GOALS[0].id };
+  }
+}
+
+export async function saveGoals(goals: FreedomGoal[], activeGoalId: string): Promise<void> {
+  await Promise.all([
+    AsyncStorage.setItem(GOALS_KEY, JSON.stringify(goals)),
+    AsyncStorage.setItem(ACTIVE_GOAL_KEY, activeGoalId),
+  ]);
+}
+
+export async function loadCleanDays(): Promise<string[]> {
+  try {
+    const raw = await AsyncStorage.getItem(CLEAN_DAYS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveCleanDays(days: string[]): Promise<void> {
+  await AsyncStorage.setItem(CLEAN_DAYS_KEY, JSON.stringify(days));
+}
+
+export async function loadTutorialsSeen(): Promise<TutorialSeenMap> {
+  try {
+    const raw = await AsyncStorage.getItem(TUTORIAL_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) || {};
+  } catch {
+    return {};
+  }
+}
+
+export async function saveTutorialsSeen(map: TutorialSeenMap): Promise<void> {
+  await AsyncStorage.setItem(TUTORIAL_KEY, JSON.stringify(map));
+}
+
 export function serializeBackup(
   profile: UserProfile,
   items: ImpulseItem[],
-  subscriptions: SubscriptionItem[] = []
+  subscriptions: SubscriptionItem[] = [],
+  goals: FreedomGoal[] = DEFAULT_GOALS,
+  activeGoalId: string = DEFAULT_GOALS[0].id,
+  cleanDays: string[] = []
 ): string {
   const payload: AppBackupPayload = {
-    version: 2,
+    version: 3,
     app: 'PausePay',
     exportedAt: new Date().toISOString(),
     profile,
     items,
     subscriptions,
+    goals,
+    activeGoalId,
+    cleanDays,
   };
   return JSON.stringify(payload, null, 2);
 }
@@ -88,6 +167,12 @@ export function parseBackup(rawJson: string): AppBackupPayload | null {
     ) {
       return null;
     }
+    const goals: FreedomGoal[] =
+      Array.isArray(parsed.goals) && parsed.goals.length > 0 ? parsed.goals : DEFAULT_GOALS;
+    const activeGoalId =
+      typeof parsed.activeGoalId === 'string' && goals.some((g) => g.id === parsed.activeGoalId)
+        ? parsed.activeGoalId
+        : goals[0].id;
     return {
       version: parsed.version,
       app: 'PausePay',
@@ -95,6 +180,9 @@ export function parseBackup(rawJson: string): AppBackupPayload | null {
       profile: { ...DEFAULT_PROFILE, ...parsed.profile },
       items: parsed.items,
       subscriptions: Array.isArray(parsed.subscriptions) ? parsed.subscriptions : [],
+      goals,
+      activeGoalId,
+      cleanDays: Array.isArray(parsed.cleanDays) ? parsed.cleanDays : [],
     };
   } catch {
     return null;

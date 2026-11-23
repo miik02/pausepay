@@ -22,7 +22,7 @@ import { exportBackupFile, pickAndParseBackup } from '../../utils/backup';
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { showDialog } = useDialog();
-  const { profile, items, subscriptions, isPro, setDevPro, updateProfile, replaceAllData } = useApp();
+  const { profile, items, subscriptions, goals, activeGoal, cleanDays, isPro, setDevPro, updateProfile, resetTutorials, replaceAllData } = useApp();
   const lang = profile.language;
 
   const [income, setIncome] = useState(String(profile.monthlyNetIncome));
@@ -54,7 +54,7 @@ export default function SettingsScreen() {
 
   const handleExport = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    const res = await exportBackupFile(profile, items, subscriptions);
+    const res = await exportBackupFile(profile, items, subscriptions, goals, activeGoal.id, cleanDays);
     if (!res.ok) {
       showDialog({
         title: 'PausePay',
@@ -94,7 +94,7 @@ export default function SettingsScreen() {
           label: t(lang, 'backupConfirmAction'),
           variant: 'primary',
           onPress: async () => {
-            await replaceAllData(res.data.profile, res.data.items, res.data.subscriptions ?? []);
+            await replaceAllData(res.data.profile, res.data.items, res.data.subscriptions ?? [], res.data.goals, res.data.activeGoalId, res.data.cleanDays ?? []);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
             showDialog({
               title: t(lang, 'backupSuccessTitle'),
@@ -201,6 +201,27 @@ export default function SettingsScreen() {
             </Text>
           </Pressable>
         </View>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>{t(lang, 'settingsTutorialTitle')}</Text>
+        <Pressable
+          style={styles.secondaryBtn}
+          onPress={async () => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+            await resetTutorials();
+            showDialog({
+              title: t(lang, 'settingsTutorialTitle'),
+              message: t(lang, 'settingsTutorialResetMsg'),
+              icon: 'sparkles',
+              tone: 'accent',
+              actions: [{ label: okLabel, variant: 'primary' }],
+            });
+          }}
+        >
+          <Ionicons name="help-circle-outline" size={16} color={theme.accent} />
+          <Text style={styles.secondaryBtnText}>{t(lang, 'settingsTutorialBtn')}</Text>
+        </Pressable>
       </View>
 
       {__DEV__ && (

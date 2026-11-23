@@ -1,6 +1,8 @@
 import { CURRENCIES } from '../constants/etfs';
 import {
   BillingCycle,
+  CleanDayCell,
+  CleanStreakStats,
   CurrencyCode,
   GrowthPoint,
   ImpulseItem,
@@ -35,6 +37,11 @@ export function calculateLifeCost(price: number, hourlyRate: number): {
     hours,
     workDays: hours / STANDARD_WORKDAY_HOURS,
   };
+}
+
+export function calculateCostPerUse(price: number, estimatedUses?: number): number | null {
+  if (!estimatedUses || estimatedUses <= 0 || price <= 0) return null;
+  return price / estimatedUses;
 }
 
 export function calculateFutureValue(
@@ -155,6 +162,74 @@ export function calculateVaultStats(items: ImpulseItem[], hourlyRate: number): V
     activeCount,
     resistedCount,
     boughtCount,
+  };
+}
+
+export function getLocalDateKey(date: Date = new Date()): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function addDays(base: Date, delta: number): Date {
+  const next = new Date(base.getFullYear(), base.getMonth(), base.getDate());
+  next.setDate(next.getDate() + delta);
+  return next;
+}
+
+export function calculateCleanStreak(cleanDays: string[]): CleanStreakStats {
+  const set = new Set(cleanDays);
+  const today = new Date();
+  const todayKey = getLocalDateKey(today);
+  const isTodayClean = set.has(todayKey);
+
+  // Racha actual: si hoy está marcado empieza hoy, si no comprueba desde ayer
+  let currentStreak = 0;
+  let cursor = isTodayClean ? today : addDays(today, -1);
+  while (set.has(getLocalDateKey(cursor))) {
+    currentStreak += 1;
+    cursor = addDays(cursor, -1);
+  }
+
+  // Mejor racha histórica
+  const sorted = Array.from(set).sort();
+  let bestStreak = 0;
+  let run = 0;
+  let prevDate: Date | null = null;
+
+  for (const key of sorted) {
+    const parts = key.split('-').map(Number);
+    if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) continue;
+    const curr = new Date(parts[0], parts[1] - 1, parts[2]);
+    if (prevDate) {
+      const diffDays = Math.round((curr.getTime() - prevDate.getTime()) / (24 * 3600 * 1000));
+      run = diffDays === 1 ? run + 1 : 1;
+    } else {
+      run = 1;
+    }
+    if (run > bestStreak) bestStreak = run;
+    prevDate = curr;
+  }
+
+  // Últimos 28 días (4 filas x 7 columnas)
+  const last28Days: CleanDayCell[] = [];
+  for (let offset = -27; offset <= 0; offset++) {
+    const d = addDays(today, offset);
+    const key = getLocalDateKey(d);
+    last28Days.push({
+      key,
+      clean: set.has(key),
+      isToday: offset === 0,
+    });
+  }
+
+  return {
+    currentStreak,
+    bestStreak,
+    isTodayClean,
+    totalCleanDays: set.size,
+    last28Days,
   };
 }
 
